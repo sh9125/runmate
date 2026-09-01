@@ -41,3 +41,7 @@ jobs:
 
       - name: 빌드 및 테스트
         run: ./gradlew test
+        env:
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/runmate
+          SPRING_DATASOURCE_USERNAME: runmate
+          SPRING_DATASOURCE_PASSWORD: runmate
