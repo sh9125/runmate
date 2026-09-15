@@ -1,3 +1,7 @@
 spring:
   application:
     name: runmate
+
+jwt:
+  secret: runmate-jwt-secret-key-runmate-jwt-secret-key
+  access-token-expiration-millis: 3600000
