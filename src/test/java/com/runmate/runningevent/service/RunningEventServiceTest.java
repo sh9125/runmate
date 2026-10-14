@@ -3,9 +3,11 @@ package com.runmate.runningevent.service;
 import com.runmate.member.entity.Member;
 import com.runmate.member.repository.MemberRepository;
 import com.runmate.runningevent.dto.request.RunningEventCreateRequestDto;
+import com.runmate.runningevent.dto.response.RunningEventListResponseDto;
 import com.runmate.runningevent.dto.response.RunningEventResponseDto;
 import com.runmate.runningevent.entity.RunningEvent;
 import com.runmate.runningevent.entity.RunningEventStatus;
+import com.runmate.runningevent.mapper.RunningEventMapper;
 import com.runmate.runningevent.repository.RunningEventRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -13,9 +15,13 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.*;
@@ -79,6 +85,66 @@ public class RunningEventServiceTest {
                 .hasMessage("존재하지 않는 회원입니다.");
 
         verify(runningEventRepository, never()).save(any(RunningEvent.class));
+    }
+
+    @Test
+    @DisplayName("목록 조회에 성공한다")
+    void getRunningEventsListSuccess() {
+        //given
+        PageRequest pageRequest = PageRequest.of(0, 10);
+        Member creator = createMember();
+        RunningEventCreateRequestDto request = createRequest();
+        RunningEvent runningEvent = RunningEventMapper.toEntity(request, creator);
+
+        when(runningEventRepository.findAll(pageRequest))
+                .thenReturn(new PageImpl<>(List.of(runningEvent), pageRequest, 1));
+
+        //when
+        Page<RunningEventListResponseDto> response = runningEventService.getRunningEvents(pageRequest);
+
+        //then
+        assertThat(response.getContent()).hasSize(1);
+        assertThat(response.getContent().get(0).title()).isEqualTo("한강 야간 러닝");
+        assertThat(response.getContent().get(0).creatorNickname()).isEqualTo("밤빛폭격기");
+        verify(runningEventRepository).findAll(pageRequest);
+    }
+
+    @Test
+    @DisplayName("상세 정보 조회에 성공한다")
+    void getRunningEventSuccess() {
+        //given
+        Long eventId = 1L;
+        Member creator = createMember();
+        RunningEventCreateRequestDto request = createRequest();
+        RunningEvent runningEvent = RunningEventMapper.toEntity(request, creator);
+        when(runningEventRepository.findById(eventId))
+                .thenReturn((Optional.of(runningEvent)));
+
+        //when
+        RunningEventResponseDto response = runningEventService.getRunningEvent(eventId);
+
+        //then
+        assertThat(response.title()).isEqualTo("한강 야간 러닝");
+        assertThat(response.description()).isEqualTo("함께 가볍게 달려요.");
+        assertThat(response.creatorNickname()).isEqualTo("밤빛폭격기");
+        verify(runningEventRepository).findById(eventId);
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 이벤트 상세 조회 실패")
+    void getRunningEventFail() {
+        //given
+        Long eventId = 999L;
+        when(runningEventRepository.findById(eventId))
+                .thenReturn((Optional.empty()));
+        //when
+
+        //then
+        assertThatThrownBy(() -> runningEventService.getRunningEvent(eventId))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("존재하지 않는 러닝 이벤트입니다.");
+
+        verify(runningEventRepository).findById(eventId);
     }
 
     private RunningEventCreateRequestDto createRequest() {

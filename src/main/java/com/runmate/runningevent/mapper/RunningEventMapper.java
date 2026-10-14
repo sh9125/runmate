@@ -2,6 +2,7 @@ package com.runmate.runningevent.mapper;
 
 import com.runmate.member.entity.Member;
 import com.runmate.runningevent.dto.request.RunningEventCreateRequestDto;
+import com.runmate.runningevent.dto.response.RunningEventListResponseDto;
 import com.runmate.runningevent.dto.response.RunningEventResponseDto;
 import com.runmate.runningevent.entity.RunningEvent;
 
@@ -44,5 +45,21 @@ public class RunningEventMapper {
                 runningEvent.getCreator().getNickname(),
                 runningEvent.getCreatedAt(),
                 runningEvent.getUpdatedAt());
+    }
+
+    public static RunningEventListResponseDto toListResponse(RunningEvent runningEvent) {
+        return new RunningEventListResponseDto(
+                runningEvent.getId(),
+                runningEvent.getTitle(),
+                runningEvent.getRegion(),
+                runningEvent.getRunningPlace(),
+                runningEvent.getStartAt(),
+                runningEvent.getPreferredPaceSeconds(),
+                runningEvent.getTargetDistanceKm(),
+                runningEvent.getCapacity(),
+                runningEvent.getCurrentParticipantCount(),
+                runningEvent.getStatus(),
+                runningEvent.getCreator().getNickname()
+        );
     }
 }
