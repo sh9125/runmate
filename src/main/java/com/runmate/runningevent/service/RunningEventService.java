@@ -1,0 +1,29 @@
+package com.runmate.runningevent.service;
+
+import com.runmate.member.entity.Member;
+import com.runmate.member.repository.MemberRepository;
+import com.runmate.runningevent.dto.request.RunningEventCreateRequestDto;
+import com.runmate.runningevent.dto.response.RunningEventResponseDto;
+import com.runmate.runningevent.entity.RunningEvent;
+import com.runmate.runningevent.mapper.RunningEventMapper;
+import com.runmate.runningevent.repository.RunningEventRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+
+@Service
+@RequiredArgsConstructor
+public class RunningEventService {
+    private final RunningEventRepository runningEventRepository;
+    private final MemberRepository memberRepository;
+
+    @Transactional
+    public RunningEventResponseDto createRunningEvent(RunningEventCreateRequestDto dto, String creatorEmail) {
+        Member creator = memberRepository.findByEmail(creatorEmail).orElseThrow(() -> new IllegalArgumentException("존재하지 않는 회원입니다."));
+        RunningEvent runningEvent = RunningEventMapper.toEntity(dto, creator);
+        RunningEvent savedEvent = runningEventRepository.save(runningEvent);
+        return RunningEventMapper.toResponse(savedEvent);
+    }
+
+}
