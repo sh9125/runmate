@@ -2,7 +2,9 @@ package com.runmate.runningevent.controller;
 
 import com.runmate.runningevent.dto.request.RunningEventCreateRequestDto;
 import com.runmate.runningevent.dto.response.RunningEventListResponseDto;
+import com.runmate.runningevent.dto.response.RunningEventParticipantResponseDto;
 import com.runmate.runningevent.dto.response.RunningEventResponseDto;
+import com.runmate.runningevent.service.RunningEventParticipantService;
 import com.runmate.runningevent.service.RunningEventService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -19,6 +21,7 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/v1/running-events")
 public class RunningEventController {
     private final RunningEventService runningEventService;
+    private final RunningEventParticipantService runningEventParticipantService;
 
     @PostMapping
     public ResponseEntity<RunningEventResponseDto> createRunningEvent(
@@ -39,5 +42,11 @@ public class RunningEventController {
     public ResponseEntity<RunningEventResponseDto> getRunningEvent(@PathVariable Long eventId) {
         RunningEventResponseDto runningEvent = runningEventService.getRunningEvent(eventId);
         return ResponseEntity.ok(runningEvent);
+    }
+
+    @PostMapping("/{eventId}/participants")
+    public ResponseEntity<RunningEventParticipantResponseDto> participateRunningEvent(@PathVariable Long eventId, Authentication authentication) {
+        RunningEventParticipantResponseDto runningEventParticipantResponseDto = runningEventParticipantService.participateRunningEvent(eventId, authentication.getName());
+        return ResponseEntity.status(HttpStatus.CREATED).body(runningEventParticipantResponseDto);
     }
 }

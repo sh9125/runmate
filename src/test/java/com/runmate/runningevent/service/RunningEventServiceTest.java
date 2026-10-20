@@ -6,12 +6,15 @@ import com.runmate.runningevent.dto.request.RunningEventCreateRequestDto;
 import com.runmate.runningevent.dto.response.RunningEventListResponseDto;
 import com.runmate.runningevent.dto.response.RunningEventResponseDto;
 import com.runmate.runningevent.entity.RunningEvent;
+import com.runmate.runningevent.entity.RunningEventParticipant;
 import com.runmate.runningevent.entity.RunningEventStatus;
 import com.runmate.runningevent.mapper.RunningEventMapper;
+import com.runmate.runningevent.repository.RunningEventParticipantRepository;
 import com.runmate.runningevent.repository.RunningEventRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -35,6 +38,9 @@ public class RunningEventServiceTest {
 
     @Mock
     private MemberRepository memberRepository;
+
+    @Mock
+    private RunningEventParticipantRepository runningEventParticipantRepository;
 
     @InjectMocks
     private RunningEventService runningEventService;
@@ -62,9 +68,19 @@ public class RunningEventServiceTest {
         assertThat(response.status()).isEqualTo(RunningEventStatus.RECRUITING);
         assertThat(response.creatorNickname()).isEqualTo(creator.getNickname());
         verify(memberRepository).findByEmail(creator.getEmail());
-        verify(runningEventRepository).save(any(RunningEvent.class));
+        ArgumentCaptor<RunningEvent> eventCaptor = ArgumentCaptor.forClass(RunningEvent.class);
 
+        verify(runningEventRepository).save(eventCaptor.capture());
 
+        ArgumentCaptor<RunningEventParticipant> captor = ArgumentCaptor.forClass(RunningEventParticipant.class);
+
+        verify(runningEventParticipantRepository).save(captor.capture());
+
+        RunningEventParticipant participant = captor.getValue();
+
+        assertThat(participant.getMember()).isSameAs(creator);
+
+        assertThat(participant.getRunningEvent()).isSameAs(eventCaptor.getValue());
     }
 
     @Test
