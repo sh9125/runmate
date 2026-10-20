@@ -6,7 +6,9 @@ import com.runmate.runningevent.dto.request.RunningEventCreateRequestDto;
 import com.runmate.runningevent.dto.response.RunningEventListResponseDto;
 import com.runmate.runningevent.dto.response.RunningEventResponseDto;
 import com.runmate.runningevent.entity.RunningEvent;
+import com.runmate.runningevent.entity.RunningEventParticipant;
 import com.runmate.runningevent.mapper.RunningEventMapper;
+import com.runmate.runningevent.repository.RunningEventParticipantRepository;
 import com.runmate.runningevent.repository.RunningEventRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -20,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class RunningEventService {
     private final RunningEventRepository runningEventRepository;
     private final MemberRepository memberRepository;
+    private final RunningEventParticipantRepository runningEventParticipantRepository;
 
     @Transactional
     public RunningEventResponseDto createRunningEvent(RunningEventCreateRequestDto dto, String creatorEmail) {
@@ -27,6 +30,11 @@ public class RunningEventService {
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 회원입니다."));
         RunningEvent runningEvent = RunningEventMapper.toEntity(dto, creator);
         RunningEvent savedEvent = runningEventRepository.save(runningEvent);
+        RunningEventParticipant runningEventParticipant = RunningEventParticipant.builder()
+                .runningEvent(savedEvent)
+                .member(creator)
+                .build();
+        runningEventParticipantRepository.save(runningEventParticipant);
         return RunningEventMapper.toResponse(savedEvent);
     }
 

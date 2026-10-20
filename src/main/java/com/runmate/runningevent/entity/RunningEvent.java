@@ -85,4 +85,8 @@ public class RunningEvent {
         this.creator = creator;
     }
 
+    public void increaseCurrentParticipantCount() {
+        this.currentParticipantCount++;
+    }
+
 }
