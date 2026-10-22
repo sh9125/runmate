@@ -42,7 +42,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         String email = jwtTokenProvider.getEmail(token);
 
-        Member member = memberRepository.findByEmail(email).orElseThrow(() -> new IllegalArgumentException("존재하지 않는 회원입니다."));
+        Member member = memberRepository.findByEmail(email).orElse(null);
+        if (member == null) {
+            SecurityContextHolder.clearContext();
+            filterChain.doFilter(request, response);
+            return;
+        }
 
         UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(member.getEmail(), null, List.of(new SimpleGrantedAuthority("ROLE_USER")));
 

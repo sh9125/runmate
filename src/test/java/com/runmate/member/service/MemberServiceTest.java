@@ -1,5 +1,8 @@
 package com.runmate.member.service;
 
+import com.runmate.global.exception.BusinessException;
+import com.runmate.global.exception.ErrorCode;
+
 import com.runmate.member.dto.request.MemberSignupRequestDto;
 import com.runmate.member.dto.response.MemberResponseDto;
 import com.runmate.member.entity.Member;
@@ -61,8 +64,10 @@ class MemberServiceTest {
         when(memberRepository.existsByEmail(request.getEmail())).thenReturn(true);
 
         assertThatThrownBy(() -> memberService.signup(request))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("이미 사용 중인 이메일 입니다.");
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("이미 사용 중인 이메일 입니다.")
+                .extracting(exception -> ((BusinessException) exception).getErrorCode())
+                .isEqualTo(ErrorCode.DUPLICATE_EMAIL);
 
         verify(memberRepository, never()).save(any(Member.class));
     }
@@ -75,8 +80,10 @@ class MemberServiceTest {
         when(memberRepository.existsByNickname(request.getNickname())).thenReturn(true);
 
         assertThatThrownBy(() -> memberService.signup(request))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("이미 사용 중인 닉네임 입니다.");
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("이미 사용 중인 닉네임 입니다.")
+                .extracting(exception -> ((BusinessException) exception).getErrorCode())
+                .isEqualTo(ErrorCode.DUPLICATE_NICKNAME);
 
         verify(memberRepository, never()).save(any(Member.class));
     }
