@@ -1,5 +1,8 @@
 package com.runmate.runningevent.service;
 
+import com.runmate.global.exception.BusinessException;
+import com.runmate.global.exception.ErrorCode;
+
 import com.runmate.member.entity.Member;
 import com.runmate.member.repository.MemberRepository;
 import com.runmate.runningevent.dto.request.RunningEventCreateRequestDto;
@@ -97,8 +100,10 @@ public class RunningEventServiceTest {
 
         //then
         assertThatThrownBy(() -> runningEventService.createRunningEvent(request, email))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("존재하지 않는 회원입니다.");
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("존재하지 않는 회원입니다.")
+                .extracting(exception -> ((BusinessException) exception).getErrorCode())
+                .isEqualTo(ErrorCode.MEMBER_NOT_FOUND);
 
         verify(runningEventRepository, never()).save(any(RunningEvent.class));
     }
@@ -157,8 +162,10 @@ public class RunningEventServiceTest {
 
         //then
         assertThatThrownBy(() -> runningEventService.getRunningEvent(eventId))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("존재하지 않는 러닝 이벤트입니다.");
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("존재하지 않는 러닝 이벤트입니다.")
+                .extracting(exception -> ((BusinessException) exception).getErrorCode())
+                .isEqualTo(ErrorCode.RUNNING_EVENT_NOT_FOUND);
 
         verify(runningEventRepository).findById(eventId);
     }

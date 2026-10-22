@@ -1,5 +1,7 @@
 package com.runmate.member.service;
 
+import com.runmate.global.exception.BusinessException;
+import com.runmate.global.exception.ErrorCode;
 import com.runmate.member.dto.request.MemberSignupRequestDto;
 import com.runmate.member.dto.response.MemberResponseDto;
 import com.runmate.member.entity.Member;
@@ -20,11 +22,11 @@ public class MemberService {
     @Transactional
     public MemberResponseDto signup(MemberSignupRequestDto memberSignupRequestDto) {
         if (memberRepository.existsByEmail(memberSignupRequestDto.getEmail())) {
-            throw new IllegalArgumentException("이미 사용 중인 이메일 입니다.");
+            throw new BusinessException(ErrorCode.DUPLICATE_EMAIL);
         }
 
         if (memberRepository.existsByNickname(memberSignupRequestDto.getNickname())) {
-            throw new IllegalArgumentException("이미 사용 중인 닉네임 입니다.");
+            throw new BusinessException(ErrorCode.DUPLICATE_NICKNAME);
         }
 
         String encodedPassword = passwordEncoder.encode(memberSignupRequestDto.getPassword());

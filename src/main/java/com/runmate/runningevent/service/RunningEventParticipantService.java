@@ -1,5 +1,7 @@
 package com.runmate.runningevent.service;
 
+import com.runmate.global.exception.BusinessException;
+import com.runmate.global.exception.ErrorCode;
 import com.runmate.member.entity.Member;
 import com.runmate.member.repository.MemberRepository;
 import com.runmate.runningevent.dto.response.RunningEventParticipantResponseDto;
@@ -21,11 +23,11 @@ public class RunningEventParticipantService {
 
     @Transactional
     public RunningEventParticipantResponseDto participateRunningEvent(Long runningEventId, String memberEmail) {
-        Member member = memberRepository.findByEmail(memberEmail).orElseThrow(() -> new IllegalArgumentException("존재하지 않는 회원입니다."));
-        RunningEvent savedEvent = runningEventRepository.findById(runningEventId).orElseThrow(() -> new IllegalArgumentException("존재하지 않는 러닝 이벤트입니다."));
+        Member member = memberRepository.findByEmail(memberEmail).orElseThrow(() -> new BusinessException(ErrorCode.MEMBER_NOT_FOUND));
+        RunningEvent savedEvent = runningEventRepository.findById(runningEventId).orElseThrow(() -> new BusinessException(ErrorCode.RUNNING_EVENT_NOT_FOUND));
 
         if (runningEventParticipantRepository.existsByRunningEvent_IdAndMember_Id(runningEventId, member.getId())) {
-            throw new IllegalArgumentException("이미 참가한 러닝 이벤트 입니다.");
+            throw new BusinessException(ErrorCode.ALREADY_PARTICIPATING);
         }
 
         RunningEventParticipant runningEventParticipant = RunningEventParticipant.builder()

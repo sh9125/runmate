@@ -1,8 +1,9 @@
 package com.runmate.global.config;
 
 import com.runmate.auth.jwt.JwtAuthenticationFilter;
+import com.runmate.global.exception.ErrorCode;
+import com.runmate.global.exception.SecurityErrorResponseWriter;
 import jakarta.servlet.DispatcherType;
-import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -16,6 +17,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final SecurityErrorResponseWriter securityErrorResponseWriter;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -32,10 +34,10 @@ public class SecurityConfig {
                         .anyRequest().authenticated()
                 ).exceptionHandling(exception -> exception
                         .authenticationEntryPoint((request, response, authException) ->
-                                response.sendError(HttpServletResponse.SC_UNAUTHORIZED)
+                                securityErrorResponseWriter.write(response, ErrorCode.UNAUTHORIZED)
                         )
                         .accessDeniedHandler((request, response, accessDeniedException) ->
-                                response.sendError(HttpServletResponse.SC_FORBIDDEN)
+                                securityErrorResponseWriter.write(response, ErrorCode.FORBIDDEN)
                         )
                 )
                 .addFilterBefore(

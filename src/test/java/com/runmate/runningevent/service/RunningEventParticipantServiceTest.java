@@ -1,5 +1,8 @@
 package com.runmate.runningevent.service;
 
+import com.runmate.global.exception.BusinessException;
+import com.runmate.global.exception.ErrorCode;
+
 import com.runmate.member.entity.Member;
 import com.runmate.member.repository.MemberRepository;
 import com.runmate.runningevent.dto.request.RunningEventCreateRequestDto;
@@ -94,8 +97,10 @@ public class RunningEventParticipantServiceTest {
 
         //when & then
         assertThatThrownBy(() -> runningEventParticipantService.participateRunningEvent(runningEvent.getId(), member.getEmail()))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("이미 참가한 러닝 이벤트 입니다.");
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("이미 참가한 러닝 이벤트 입니다.")
+                .extracting(exception -> ((BusinessException) exception).getErrorCode())
+                .isEqualTo(ErrorCode.ALREADY_PARTICIPATING);
 
         assertThat(runningEvent.getCurrentParticipantCount()).isEqualTo(1);
         verify(runningEventParticipantRepository, never())
@@ -118,8 +123,10 @@ public class RunningEventParticipantServiceTest {
 
         //when & then
         assertThatThrownBy(() -> runningEventParticipantService.participateRunningEvent(runningEvent.getId(), member.getEmail()))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("존재하지 않는 회원입니다.");
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("존재하지 않는 회원입니다.")
+                .extracting(exception -> ((BusinessException) exception).getErrorCode())
+                .isEqualTo(ErrorCode.MEMBER_NOT_FOUND);
         verify(runningEventParticipantRepository, never())
                 .save(any(RunningEventParticipant.class));
 
@@ -139,8 +146,10 @@ public class RunningEventParticipantServiceTest {
 
         //when & then
         assertThatThrownBy(() -> runningEventParticipantService.participateRunningEvent(eventId, member.getEmail()))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("존재하지 않는 러닝 이벤트입니다.");
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("존재하지 않는 러닝 이벤트입니다.")
+                .extracting(exception -> ((BusinessException) exception).getErrorCode())
+                .isEqualTo(ErrorCode.RUNNING_EVENT_NOT_FOUND);
         verify(runningEventParticipantRepository, never())
                 .save(any(RunningEventParticipant.class));
 
