@@ -26,6 +26,7 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -44,6 +45,9 @@ public class RunningEventServiceTest {
 
     @Mock
     private RunningEventParticipantRepository runningEventParticipantRepository;
+
+    @Mock
+    private Clock clock;
 
     @InjectMocks
     private RunningEventService runningEventService;

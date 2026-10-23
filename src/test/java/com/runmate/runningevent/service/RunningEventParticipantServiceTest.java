@@ -9,6 +9,7 @@ import com.runmate.runningevent.dto.request.RunningEventCreateRequestDto;
 import com.runmate.runningevent.dto.response.RunningEventParticipantResponseDto;
 import com.runmate.runningevent.entity.RunningEvent;
 import com.runmate.runningevent.entity.RunningEventParticipant;
+import com.runmate.runningevent.entity.RunningEventStatus;
 import com.runmate.runningevent.repository.RunningEventParticipantRepository;
 import com.runmate.runningevent.repository.RunningEventRepository;
 import org.assertj.core.api.Assertions;
@@ -153,6 +154,24 @@ public class RunningEventParticipantServiceTest {
         verify(runningEventParticipantRepository, never())
                 .save(any(RunningEventParticipant.class));
 
+    }
+
+    @Test
+    @DisplayName("취소된 이벤트에는 참가 기록을 저장하거나 인원을 증가시키지 않는다")
+    void canceledEventRejectsParticipation() {
+        Member member = createMember("참가자", "runner@example.com");
+        RunningEvent event = createRunningEvent(createMember("생성자", "creator@example.com"));
+        ReflectionTestUtils.setField(event, "status", RunningEventStatus.CANCELED);
+        when(memberRepository.findByEmail(member.getEmail())).thenReturn(Optional.of(member));
+        when(runningEventRepository.findById(10L)).thenReturn(Optional.of(event));
+
+        assertThatThrownBy(() -> runningEventParticipantService.participateRunningEvent(10L, member.getEmail()))
+                .isInstanceOf(BusinessException.class)
+                .extracting(exception -> ((BusinessException) exception).getErrorCode())
+                .isEqualTo(ErrorCode.EVENT_CANCELED);
+
+        assertThat(event.getCurrentParticipantCount()).isEqualTo(1);
+        verifyNoInteractions(runningEventParticipantRepository);
     }
 
     private Member createMember(String name, String email) {
