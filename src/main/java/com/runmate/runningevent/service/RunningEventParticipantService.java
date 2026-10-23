@@ -7,6 +7,7 @@ import com.runmate.member.repository.MemberRepository;
 import com.runmate.runningevent.dto.response.RunningEventParticipantResponseDto;
 import com.runmate.runningevent.entity.RunningEvent;
 import com.runmate.runningevent.entity.RunningEventParticipant;
+import com.runmate.runningevent.entity.RunningEventStatus;
 import com.runmate.runningevent.mapper.RunningEventParticipantMapper;
 import com.runmate.runningevent.repository.RunningEventParticipantRepository;
 import com.runmate.runningevent.repository.RunningEventRepository;
@@ -25,6 +26,10 @@ public class RunningEventParticipantService {
     public RunningEventParticipantResponseDto participateRunningEvent(Long runningEventId, String memberEmail) {
         Member member = memberRepository.findByEmail(memberEmail).orElseThrow(() -> new BusinessException(ErrorCode.MEMBER_NOT_FOUND));
         RunningEvent savedEvent = runningEventRepository.findById(runningEventId).orElseThrow(() -> new BusinessException(ErrorCode.RUNNING_EVENT_NOT_FOUND));
+
+        if (savedEvent.getStatus() == RunningEventStatus.CANCELED) {
+            throw new BusinessException(ErrorCode.EVENT_CANCELED);
+        }
 
         if (runningEventParticipantRepository.existsByRunningEvent_IdAndMember_Id(runningEventId, member.getId())) {
             throw new BusinessException(ErrorCode.ALREADY_PARTICIPATING);

@@ -1,5 +1,7 @@
 package com.runmate.runningevent.entity;
 
+import com.runmate.global.exception.BusinessException;
+import com.runmate.global.exception.ErrorCode;
 import com.runmate.member.entity.Member;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
@@ -19,6 +21,7 @@ import java.time.LocalDateTime;
 @Getter
 @EntityListeners(AuditingEntityListener.class)
 public class RunningEvent {
+    private static final int MANAGEMENT_DEADLINE_MINUTES = 15;
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -87,6 +90,49 @@ public class RunningEvent {
 
     public void increaseCurrentParticipantCount() {
         this.currentParticipantCount++;
+    }
+
+    public void update(String title, String description, String region, String runningPlace,
+                       String meetingPlace, LocalDateTime startAt, Integer preferredPaceSeconds,
+                       BigDecimal targetDistanceKm, Integer capacity, LocalDateTime now) {
+        validateManagementAllowed(now);
+
+        if (!startAt.isAfter(now.plusMinutes(MANAGEMENT_DEADLINE_MINUTES))) {
+            throw new BusinessException(ErrorCode.EVENT_START_TOO_SOON);
+        }
+        if (currentParticipantCount > 1 && (
+                !this.startAt.equals(startAt) || !this.region.equals(region)
+                        || !this.runningPlace.equals(runningPlace) || !this.meetingPlace.equals(meetingPlace))) {
+            throw new BusinessException(ErrorCode.EVENT_DETAILS_LOCKED);
+        }
+        if (capacity < currentParticipantCount) {
+            throw new BusinessException(ErrorCode.CAPACITY_BELOW_PARTICIPANTS);
+        }
+
+        // 모든 검증을 마친 뒤에만 값을 변경한다.
+        this.title = title;
+        this.description = description;
+        this.region = region;
+        this.runningPlace = runningPlace;
+        this.meetingPlace = meetingPlace;
+        this.startAt = startAt;
+        this.preferredPaceSeconds = preferredPaceSeconds;
+        this.targetDistanceKm = targetDistanceKm;
+        this.capacity = capacity;
+    }
+
+    public void cancel(LocalDateTime now) {
+        validateManagementAllowed(now);
+        this.status = RunningEventStatus.CANCELED;
+    }
+
+    private void validateManagementAllowed(LocalDateTime now) {
+        if (status != RunningEventStatus.RECRUITING && status != RunningEventStatus.CLOSED) {
+            throw new BusinessException(ErrorCode.EVENT_NOT_MANAGEABLE);
+        }
+        if (!now.isBefore(startAt.minusMinutes(MANAGEMENT_DEADLINE_MINUTES))) {
+            throw new BusinessException(ErrorCode.EVENT_MANAGEMENT_DEADLINE_PASSED);
+        }
     }
 
 }

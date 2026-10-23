@@ -10,6 +10,8 @@ import com.runmate.member.entity.Member;
 import com.runmate.member.repository.MemberRepository;
 import com.runmate.member.service.MemberService;
 import com.runmate.runningevent.controller.RunningEventController;
+import com.runmate.runningevent.dto.response.RunningEventResponseDto;
+import com.runmate.runningevent.entity.RunningEventStatus;
 import com.runmate.runningevent.service.RunningEventParticipantService;
 import com.runmate.runningevent.service.RunningEventService;
 import org.junit.jupiter.api.DisplayName;
@@ -26,14 +28,18 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.Optional;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -162,7 +168,7 @@ class ApiExceptionHandlingTest {
     @Test
     @DisplayName("허용되지 않은 메서드는 405와 Allow 헤더를 보존한다")
     void unsupportedMethod() throws Exception {
-        mockMvc.perform(put("/api/v1/running-events/1"))
+        mockMvc.perform(delete("/api/v1/running-events/1"))
                 .andExpect(status().isMethodNotAllowed())
                 .andExpect(header().string("Allow", containsString("GET")))
                 .andExpect(jsonPath("$.code").value("METHOD_NOT_ALLOWED"));
@@ -267,5 +273,101 @@ class ApiExceptionHandlingTest {
         mockMvc.perform(get("/api/v1/running-events/1"))
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.code").value("INTERNAL_SERVER_ERROR"));
+    }
+
+    @Test
+    @DisplayName("이벤트 전체 수정은 인증 이메일을 전달하고 수정 결과를 반환한다")
+    void updateEvent() throws Exception {
+        when(runningEventService.updateRunningEvent(eq(1L), any(), eq("runner@example.com")))
+                .thenReturn(eventResponse(RunningEventStatus.RECRUITING));
+
+        mockMvc.perform(put("/api/v1/running-events/1")
+                        .contentType(MediaType.APPLICATION_JSON).content(validUpdateJson()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.title").value("수정 제목"));
+    }
+
+    @Test
+    @DisplayName("개최 취소는 본문 없이 요청하고 취소 상태를 반환한다")
+    void cancelEvent() throws Exception {
+        when(runningEventService.cancelRunningEvent(1L, "runner@example.com"))
+                .thenReturn(eventResponse(RunningEventStatus.CANCELED));
+
+        mockMvc.perform(post("/api/v1/running-events/1/cancel"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELED"))
+                .andExpect(jsonPath("$.currentParticipantCount").value(1));
+    }
+
+    @Test
+    @DisplayName("다른 회원의 이벤트 수정은 403으로 응답한다")
+    void updateRequiresCreator() throws Exception {
+        when(runningEventService.updateRunningEvent(eq(1L), any(), eq("runner@example.com")))
+                .thenThrow(new BusinessException(ErrorCode.NOT_EVENT_CREATOR));
+
+        mockMvc.perform(put("/api/v1/running-events/1")
+                        .contentType(MediaType.APPLICATION_JSON).content(validUpdateJson()))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("NOT_EVENT_CREATOR"));
+    }
+
+    @Test
+    @DisplayName("수정과 개최 취소의 마감 이후 요청은 공통 형식의 409로 응답한다")
+    void managementDeadlineConflict() throws Exception {
+        when(runningEventService.updateRunningEvent(eq(1L), any(), eq("runner@example.com")))
+                .thenThrow(new BusinessException(ErrorCode.EVENT_MANAGEMENT_DEADLINE_PASSED));
+        when(runningEventService.cancelRunningEvent(1L, "runner@example.com"))
+                .thenThrow(new BusinessException(ErrorCode.EVENT_MANAGEMENT_DEADLINE_PASSED));
+
+        mockMvc.perform(put("/api/v1/running-events/1")
+                        .contentType(MediaType.APPLICATION_JSON).content(validUpdateJson()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("EVENT_MANAGEMENT_DEADLINE_PASSED"));
+        mockMvc.perform(post("/api/v1/running-events/1/cancel"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("EVENT_MANAGEMENT_DEADLINE_PASSED"));
+    }
+
+    @Test
+    @DisplayName("필수 수정값이 빠지거나 정원이 0이면 400이고 Service를 호출하지 않는다")
+    void updateValidationFailure() throws Exception {
+        mockMvc.perform(put("/api/v1/running-events/1")
+                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.errors[*].field", hasItem("startAt")));
+        mockMvc.perform(put("/api/v1/running-events/1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(validUpdateJson().replace("\"capacity\":10", "\"capacity\":0")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[*].field", hasItem("capacity")));
+        verifyNoInteractions(runningEventService);
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("인증 없이 수정과 개최 취소를 할 수 없다")
+    void managementRequiresAuthentication() throws Exception {
+        mockMvc.perform(put("/api/v1/running-events/1")
+                        .contentType(MediaType.APPLICATION_JSON).content(validUpdateJson()))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/api/v1/running-events/1/cancel"))
+                .andExpect(status().isUnauthorized());
+        verifyNoInteractions(runningEventService);
+    }
+
+    private String validUpdateJson() {
+        return """
+                {"title":"수정 제목","description":"설명","region":"서울",
+                 "runningPlace":"한강공원","meetingPlace":"정문","startAt":"2030-11-01T19:00:00",
+                 "preferredPaceSeconds":360,"targetDistanceKm":5,"capacity":10}
+                """;
+    }
+
+    private RunningEventResponseDto eventResponse(RunningEventStatus status) {
+        return new RunningEventResponseDto(1L, "수정 제목", "설명", "서울", "한강공원", "정문",
+                LocalDateTime.of(2030, 11, 1, 19, 0), 360, BigDecimal.valueOf(5), 10, 1,
+                status, 2L, "생성자", null, null);
     }
 }
