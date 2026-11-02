@@ -67,4 +67,12 @@ public class RunningEventController {
         RunningEventParticipantResponseDto runningEventParticipantResponseDto = runningEventParticipantService.participateRunningEvent(eventId, authentication.getName());
         return ResponseEntity.status(HttpStatus.CREATED).body(runningEventParticipantResponseDto);
     }
+
+    @PostMapping("/{eventId}/participants/cancel")
+    public ResponseEntity<RunningEventParticipantResponseDto> cancelParticipation(
+            @PathVariable Long eventId, Authentication authentication
+    ) {
+        return ResponseEntity.ok(runningEventParticipantService.cancelParticipation(
+                eventId, authentication.getName()));
+    }
 }

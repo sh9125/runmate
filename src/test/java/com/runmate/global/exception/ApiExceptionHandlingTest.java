@@ -10,7 +10,9 @@ import com.runmate.member.entity.Member;
 import com.runmate.member.repository.MemberRepository;
 import com.runmate.member.service.MemberService;
 import com.runmate.runningevent.controller.RunningEventController;
+import com.runmate.runningevent.dto.response.RunningEventParticipantResponseDto;
 import com.runmate.runningevent.dto.response.RunningEventResponseDto;
+import com.runmate.runningevent.entity.RunningEventParticipantStatus;
 import com.runmate.runningevent.entity.RunningEventStatus;
 import com.runmate.runningevent.service.RunningEventParticipantService;
 import com.runmate.runningevent.service.RunningEventService;
@@ -37,6 +39,7 @@ import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -355,6 +358,63 @@ class ApiExceptionHandlingTest {
         mockMvc.perform(post("/api/v1/running-events/1/cancel"))
                 .andExpect(status().isUnauthorized());
         verifyNoInteractions(runningEventService);
+    }
+
+    @Test
+    @DisplayName("개인 참가 취소는 로그인 회원의 이메일을 전달하고 개인 취소 상태를 반환한다")
+    void cancelOwnParticipation() throws Exception {
+        when(participantService.cancelParticipation(1L, "runner@example.com"))
+                .thenReturn(new RunningEventParticipantResponseDto(10L, 1L, 2L,
+                        RunningEventParticipantStatus.CANCELED, null));
+
+        mockMvc.perform(post("/api/v1/running-events/1/participants/cancel"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(10))
+                .andExpect(jsonPath("$.eventId").value(1))
+                .andExpect(jsonPath("$.memberId").value(2))
+                .andExpect(jsonPath("$.status").value("CANCELED"));
+
+        verify(participantService).cancelParticipation(1L, "runner@example.com");
+        verifyNoInteractions(runningEventService);
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("인증 없는 개인 참가 취소는 401이며 서비스를 호출하지 않는다")
+    void participationCancellationRequiresAuthentication() throws Exception {
+        mockMvc.perform(post("/api/v1/running-events/1/participants/cancel"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+        verifyNoInteractions(participantService);
+    }
+
+    @Test
+    @DisplayName("개인 취소 마감 이후에는 409와 개인 취소 마감 오류를 반환한다")
+    void participationCancellationDeadlineConflict() throws Exception {
+        when(participantService.cancelParticipation(1L, "runner@example.com"))
+                .thenThrow(new BusinessException(ErrorCode.PARTICIPATION_CANCELLATION_DEADLINE_PASSED));
+        mockMvc.perform(post("/api/v1/running-events/1/participants/cancel"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PARTICIPATION_CANCELLATION_DEADLINE_PASSED"));
+    }
+
+    @Test
+    @DisplayName("개인 취소 대상 이벤트가 없으면 404를 반환한다")
+    void participationCancellationEventNotFound() throws Exception {
+        when(participantService.cancelParticipation(999L, "runner@example.com"))
+                .thenThrow(new BusinessException(ErrorCode.RUNNING_EVENT_NOT_FOUND));
+        mockMvc.perform(post("/api/v1/running-events/999/participants/cancel"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RUNNING_EVENT_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("잘못된 이벤트 ID로 개인 취소를 요청하면 400이며 서비스를 호출하지 않는다")
+    void participationCancellationInvalidEventId() throws Exception {
+        mockMvc.perform(post("/api/v1/running-events/invalid/participants/cancel"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        verifyNoInteractions(participantService);
     }
 
     private String validUpdateJson() {

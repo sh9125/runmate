@@ -15,12 +15,17 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
+import java.time.LocalDateTime;
+import java.util.Optional;
+
 @Service
 @RequiredArgsConstructor
 public class RunningEventParticipantService {
     private final RunningEventParticipantRepository runningEventParticipantRepository;
     private final MemberRepository memberRepository;
     private final RunningEventRepository runningEventRepository;
+    private final Clock clock;
 
     @Transactional
     public RunningEventParticipantResponseDto participateRunningEvent(Long runningEventId, String memberEmail) {
@@ -31,19 +36,38 @@ public class RunningEventParticipantService {
             throw new BusinessException(ErrorCode.EVENT_CANCELED);
         }
 
-        if (runningEventParticipantRepository.existsByRunningEvent_IdAndMember_Id(runningEventId, member.getId())) {
-            throw new BusinessException(ErrorCode.ALREADY_PARTICIPATING);
+        LocalDateTime now = LocalDateTime.now(clock);
+        Optional<RunningEventParticipant> participant = runningEventParticipantRepository.findByRunningEvent_IdAndMember_Id(runningEventId, member.getId());
+        if (participant.isEmpty()) {
+            savedEvent.validateParticipationAllowed(now);
+            RunningEventParticipant runningEventParticipant = RunningEventParticipant.builder()
+                    .runningEvent(savedEvent)
+                    .member(member)
+                    .build();
+
+            RunningEventParticipant savedRunningEventParticipant = runningEventParticipantRepository.save(runningEventParticipant);
+
+            savedEvent.increaseCurrentParticipantCount();
+
+            return RunningEventParticipantMapper.toResponse(savedRunningEventParticipant);
         }
 
-        RunningEventParticipant runningEventParticipant = RunningEventParticipant.builder()
-                .runningEvent(savedEvent)
-                .member(member)
-                .build();
+        RunningEventParticipant existingParticipant = participant.get();
+        existingParticipant.rejoin(now);
+        return RunningEventParticipantMapper.toResponse(existingParticipant);
+    }
 
-        RunningEventParticipant savedRunningEventParticipant = runningEventParticipantRepository.save(runningEventParticipant);
+    @Transactional
+    public RunningEventParticipantResponseDto cancelParticipation(Long runningEventId, String memberEmail) {
+        Member member = memberRepository.findByEmail(memberEmail)
+                .orElseThrow(() -> new BusinessException(ErrorCode.MEMBER_NOT_FOUND));
+        runningEventRepository.findById(runningEventId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.RUNNING_EVENT_NOT_FOUND));
+        RunningEventParticipant participant = runningEventParticipantRepository
+                .findByRunningEvent_IdAndMember_Id(runningEventId, member.getId())
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_PARTICIPATING));
 
-        savedEvent.increaseCurrentParticipantCount();
-
-        return RunningEventParticipantMapper.toResponse(savedRunningEventParticipant);
+        participant.cancel(LocalDateTime.now(clock));
+        return RunningEventParticipantMapper.toResponse(participant);
     }
 }
