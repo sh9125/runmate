@@ -1,6 +1,60 @@
 # RunMate 작업 인수인계
 
-최종 갱신: 2026-10-23 (Asia/Seoul)
+최종 갱신: 2026-11-02 (Asia/Seoul)
+
+## 0. 새 컨텍스트에서 바로 이어갈 위치 (최신 요약)
+
+이 절이 아래의 과거 미커밋/미검증/다음 행동 기록보다 우선한다.
+
+- 최종 목표는 로컬 프론트 연결까지 서비스 기능을 완성하고, 대규모 부하를 재현해 동시성 정확성과 성능 개선을 수치로 검증하는 포트폴리오다. 배포 제외, 검색 조건/별도 관리 화면 보류, 내 정보 수정/비밀번호 변경/회원 탈퇴 제외
+- 현재 작업: 정원 제한·개인 취소·재참가·조회 시 모집 마감 구현 및 사용자 Swagger/DB 확인 완료 보고. 커밋 전 점검에서 상세 응답 updatedAt 반영 순서 보완 및 미사용 코드 정리 후 전체 119개 통과. 다음은 커밋/푸시/PR/병합이며 아직 실행하지 않음
+- 최신 마감 정책: 스케줄러를 사용하지 않음. 상세 조회한 이벤트 또는 목록의 조회 페이지에 포함된 이벤트만 시작 시각에 따라 RECRUITING에서 CLOSED로 변경. 두 조회 메서드는 쓰기 가능한 @Transactional 사용. DTO 생성 전 상태 변경, 커밋 시 DB 반영. 조회되지 않은 이벤트는 다음 조회까지 기존 상태일 수 있으며 참가 API는 시간 검사로 시작 후 신청 차단
+- 커밋 전 점검 보완: 상세 조회에서 상태가 실제 변경된 경우에만 flush 후 DTO 생성하여 Auditing updatedAt 반영 순서를 기존 관리 API와 통일. 이미 마감/개최 취소/완료된 상세 조회는 명시적 flush 생략. flush 시 값 갱신을 모사한 회귀 테스트 추가(실제 DB Auditing 테스트 아님). 사용하지 않는 existsByRunningEvent_IdAndMember_Id 및 들여쓰기 정리
+- 실제 브랜치: feature/running-event-participation-management. main 3407ebb 기준 생성. 모든 새 브랜치는 사용자 지정대로 feature/로 시작
+- 기능 커밋: a8ae790 러닝 이벤트 수정 및 개최 취소 기능 구현. 원격 기능 브랜치에 푸시된 것을 git ls-remote로 확인
+- PR #8: https://github.com/sh9125/runmate/pull/8. GitHub에서 a8ae790의 CI 1/1 통과와 2026-10-23 18:50 KST 병합 확인. 병합 커밋은 3407ebb
+- 로컬 main은 3407ebb로 fast-forward 동기화 완료. 기존 docs/HANDOFF.md 미커밋 변경은 임시 stash 후 main에 복원했으며 기능 코드 변경 없음. 기능 브랜치도 첫 pull 과정에서 같은 병합 커밋까지 fast-forward됨
+- PR/main 확인에서는 기존 자동 테스트와 Swagger 검증을 재실행하지 않았음. 10월 25일 엔티티 변경 후에는 새 규칙 및 기존 코드 호환성을 위해 자동 테스트 실행. Swagger는 반복하지 않음. 엔티티·테스트·문서 변경은 미커밋
+- 마지막 실행(2026-11-02) .\gradlew.bat test: BUILD SUCCESSFUL (1분 13초), 119개 통과, 실패/오류/건너뜀 0. 기존 106개 + 조회 마감 12개 + 상세 updatedAt 반영 순서 회귀 테스트 1개. RunningEventServiceTest는 총 18개. XML 보고서로 확인. 사용자 Swagger/DB 확인 이후 상세 조회 flush 보완으로 재실행했으며 기존 Swagger는 반복하지 않음
+- 이번 사용자 검증 보고: A 생성/정원 2명 이벤트에서 B 신청, C 정원 초과 거절, B 취소/반복 취소 거절/재참가, 생성자 개인 취소 금지의 1번 흐름 성공 보고. 2번은 테스트 이벤트 start_at을 현재+5분으로 DB 조정 후 B 취소 마감 거절·상태/인원 유지 확인 보고. 빈자리의 C 신청 성공 항목은 정원 만석이라 생략
+- 조회 마감 사용자 검증 보고: 같은 테스트 이벤트의 start_at을 과거로 변경 후 상세 응답과 DB가 모두 CLOSED임을 명시 확인. DB 상태를 RECRUITING으로 되돌리고 상세 조회 없이 목록 조회 후 응답/DB 모두 CLOSED 확인. 마지막 C 신청의 409/EVENT_NOT_RECRUITING 및 인원 유지 안내에 사용자 확인 보고. 이벤트 ID는 대화에 제공되지 않음. AI가 Swagger/DB를 직접 실행·조회한 결과는 아님
+- 구현 API: PUT /api/v1/running-events/{eventId}, POST /api/v1/running-events/{eventId}/cancel
+- 개인 참가 API: 기존 POST /api/v1/running-events/{eventId}/participants로 최초 신청/재참가(201), 새 POST /api/v1/running-events/{eventId}/participants/cancel로 개인 취소(200). 둘 다 개인 참가 상태를 응답하며 개인 취소 요청 본문 없음. 로그인 이메일로 대상 회원을 결정
+- 생성자만 관리 가능. 현재 < 기존 시작 - 15분 조건, 정확한 마감부터 거절. 새 시작 > 현재 + 15분, 날짜 연기로 마감 우회 불가
+- 참가자 2명 이상이면 시작 시각/지역/러닝 장소/집합 장소 변경 불가. 제목/설명 등은 변경 가능. 정원은 현재 인원 이상
+- 개최 취소는 CANCELED 전환이며 이벤트/참가 기록/현재 인원 보존. 취소 후 수정/재취소/신규 참가 차단
+- 사용자 Swagger 보고: 가까운 새 시작 거절, 타인 수정/취소 403, 참가자 존재 시 날짜 변경 거절, 제목/설명 수정 성공, 현재 인원 미만 정원 거절/같은 정원 허용 및 조회 일치, 개최 취소 CANCELED/참가 기록 DB 보존, 취소 후 수정/재취소/참가 차단과 데이터 유지
+- 수동 미보고: 기존 시작 기준 15분 마감 이후 요청의 EVENT_MANAGEMENT_DEADLINE_PASSED (마지막으로 안내했지만 결과 답변 없이 커밋/PR 단계로 이동), 새 API별 400/401/404, 실제 updatedAt 갱신. 자동 테스트 또는 기존 공통 오류 검증과 구분하고 전부 수동 완료로 쓰지 말 것. 사용자가 이미 확인한 수동 사례는 반복하지 말 것
+- 정확한 마감 경계는 고정 Clock 단위 테스트로 검증됨. 실제 DB 기반 경합 테스트는 아직 아님
+- 학습 완료 주제: ErrorCode/BusinessException/ErrorResponse/Advice, checked/unchecked와 super/getMessage, Clock/DI, 변경 감지/flush/commit/Auditing/DTO 생성 시점, MockMvc/MockitoBean/JSONPath, BeforeEach/Mock 반환 설정, extracting/verify/verifyNoInteractions
+- 상세 구현/수동 검증: docs/RUNNING-EVENT-MANAGEMENT.md. 과거 구현 환경: docs/HANDOFF-PARTICIPATION.md. 공통 예외: docs/EXCEPTION-HANDLING.md
+
+### 다음 행동 순서
+
+1. PR #8의 푸시·CI 통과·병합과 main 동기화 확인 완료. 이 상태 확인을 불필요하게 반복하지 않음
+2. feature/running-event-participation-management 생성 및 전환 완료. 기존 문서 변경 보존
+3. 현재 범위는 2단계인 정원 제한·일반 참가 취소·재참가와 조회 시 모집 마감. 스케줄러·설정·전체 마감 조회 메서드는 사용자 합의로 제거 완료
+4. 자동 테스트 및 사용자 Swagger/DB 확인 완료. 다음은 문서/변경 정리 → 커밋/푸시/PR/병합 → main 동기화. 완료된 수동 검증은 반복하지 않음
+5. 순차 기능 완성 후 3단계에서 실제 PostgreSQL 동시성 문제를 재현하고 락 도입/검증. 기능 완성만으로 동시성 해결을 주장하지 않음
+
+### 다음 단계에서 결정/검증할 세부 사항
+
+- 확정: 정원 도달 시 RECRUITING 유지, 현재 인원 >= 정원이면 신청 거절. 취소로 빈자리 발생 시 조건 충족하면 신청 가능. 대기열 도입 후에는 대기자 우선 승급
+- 확정: 신청/재참가는 RECRUITING이며 현재 < 시작 시각이고 빈자리가 있어야 함. 상세·목록 조회 시 마감 조건을 검사해 DB 상태도 CLOSED로 변경하며, 참가 API는 조회 여부와 무관하게 시간을 직접 검사. 주기적 갱신 및 이벤트별 예약 작업은 현재 범위에서 사용하지 않음
+- 확정: 개인 취소는 현재 < 시작 - 10분일 때만 허용. 정확히 10분 전부터 거절. 이 마감 이후 신청한 사람도 취소 불가. 생성자 관리의 15분 규칙은 별개
+- 확정: 생성자는 개인 참가 취소 불가, 필요하면 기존 개최 취소 사용
+- 확정: 참가 기록은 이벤트/회원당 하나를 유지하고 PARTICIPATING/CANCELED 상태 변경. 재참가 시 같은 기록 재사용. 전체 변경 이력 테이블은 현재 범위 제외
+- 확정: 개최 취소 시 이벤트 상태만 변경하고 개인 참가 상태와 인원 보존. 개인 취소와 개최 취소를 두 상태로 구분
+- 확정: 미참가/반복 취소는 거절하고 인원 유지. 정상 취소/재참가만 인원 감소/증가
+- 엔티티 초안: RunningEventParticipant.cancel/rejoin이 개인 상태와 이벤트 인원을 함께 변경. RunningEvent가 정원·상태·시간·생성자 제한과 모집 종료 규칙 담당. 새 ErrorCode 및 엔티티 테스트 추가
+- 신청 서비스: findByRunningEvent_IdAndMember_Id의 Optional 조회로 최초 신청/기존 기록 분기. 최초 신청은 validateParticipationAllowed 후 저장·인원 증가, 기존 기록은 rejoin(now)로 중복 거절 또는 재참가. Clock 주입, 현재 시각 한 번 조회. 재참가 후 서비스에서 인원을 추가 증가시키지 않음
+- 개인 취소 서비스: @Transactional에서 회원/이벤트 존재 및 본인의 참가 기록 조회 후 cancel(now) 호출. 미참가 기록은 NOT_PARTICIPATING, 없는 이벤트는 RUNNING_EVENT_NOT_FOUND. 변경 감지로 상태/인원 반영하며 삭제/재저장하지 않음. 웹 테스트는 서비스 Mock이며 실제 DB/JWT 검증과 구분
+- 사용자 학습: Optional.get()은 내부 객체 참조를 반환하며 추가 DB 조회/복사 없음. 비어 있으면 null 대신 NoSuchElementException. isEmpty 분기의 return 뒤에는 값 존재가 보장됨
+- 기존 DB 참가 행의 새 status 기본값은 @ColumnDefault로 PARTICIPATING 지정. 실제 PostgreSQL 스키마 변경/기존 데이터 보존 검증은 아직 수행하지 않음
+- 단순 인원 비교/++/--만으로 동시 요청은 보호되지 않음. 기존 DB 참가 유니크 제약은 서로 다른 회원의 정원 경쟁을 해결하지 않음
+- 후속 락 검증에는 참가-참가/참가-개인 취소뿐 아니라 참가-개최 취소, 참가-정원/날짜 수정의 경합도 포함할 것. 현재 관리 API와 참가 API 사이 경합은 아직 보호하지 않음
+- 조회 기반 마감도 쓰기 작업이므로 개최 취소·시각/정원 수정·참가와의 경합을 후속 DB 동시성 검증에 포함. 이번 조회 테스트는 Repository Mock이며 실제 커밋/변경 감지/락을 검증한 것은 아님
+- DB 유니크 제약에서 뒤늦게 거절된 중복 요청의 오류 매핑은 아직 일반 500. 실제 제약별 분류와 DB 테스트로 보완 예정
 
 ## 1. 새 대화에서 먼저 읽을 내용
 

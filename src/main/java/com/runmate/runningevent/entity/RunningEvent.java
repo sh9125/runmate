@@ -22,6 +22,7 @@ import java.time.LocalDateTime;
 @EntityListeners(AuditingEntityListener.class)
 public class RunningEvent {
     private static final int MANAGEMENT_DEADLINE_MINUTES = 15;
+    private static final int PARTICIPATION_CANCELLATION_DEADLINE_MINUTES = 10;
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -89,7 +90,48 @@ public class RunningEvent {
     }
 
     public void increaseCurrentParticipantCount() {
+        if (currentParticipantCount >= capacity) {
+            throw new BusinessException(ErrorCode.EVENT_CAPACITY_FULL);
+        }
         this.currentParticipantCount++;
+    }
+
+    public void validateParticipationAllowed(LocalDateTime now) {
+        if (status == RunningEventStatus.CANCELED) {
+            throw new BusinessException(ErrorCode.EVENT_CANCELED);
+        }
+        if (status != RunningEventStatus.RECRUITING) {
+            throw new BusinessException(ErrorCode.EVENT_NOT_RECRUITING);
+        }
+        if (!now.isBefore(startAt)) {
+            throw new BusinessException(ErrorCode.EVENT_ALREADY_STARTED);
+        }
+        if (currentParticipantCount >= capacity) {
+            throw new BusinessException(ErrorCode.EVENT_CAPACITY_FULL);
+        }
+    }
+
+    public void cancelParticipation(Member participant, LocalDateTime now) {
+        if (creator.getEmail().equals(participant.getEmail())) {
+            throw new BusinessException(ErrorCode.CREATOR_CANNOT_CANCEL_PARTICIPATION);
+        }
+        if (status != RunningEventStatus.RECRUITING && status != RunningEventStatus.CLOSED) {
+            throw new BusinessException(ErrorCode.PARTICIPATION_NOT_CANCELABLE);
+        }
+        if (!now.isBefore(startAt.minusMinutes(PARTICIPATION_CANCELLATION_DEADLINE_MINUTES))) {
+            throw new BusinessException(ErrorCode.PARTICIPATION_CANCELLATION_DEADLINE_PASSED);
+        }
+        // 생성자의 자동 참가 인원은 반드시 남아 있어야 한다.
+        if (currentParticipantCount <= 1) {
+            throw new IllegalStateException("참가 취소 후 생성자의 참가 인원을 유지할 수 없습니다.");
+        }
+        this.currentParticipantCount--;
+    }
+
+    public void closeRecruitmentIfStarted(LocalDateTime now) {
+        if (status == RunningEventStatus.RECRUITING && !now.isBefore(startAt)) {
+            this.status = RunningEventStatus.CLOSED;
+        }
     }
 
     public void update(String title, String description, String region, String runningPlace,

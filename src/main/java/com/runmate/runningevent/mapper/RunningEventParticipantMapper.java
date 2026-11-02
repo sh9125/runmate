@@ -14,6 +14,7 @@ public class RunningEventParticipantMapper {
                 runningEventParticipant.getId(),
                 runningEventParticipant.getRunningEvent().getId(),
                 runningEventParticipant.getMember().getId(),
+                runningEventParticipant.getStatus(),
                 runningEventParticipant.getCreatedAt()
         );
     }

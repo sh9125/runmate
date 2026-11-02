@@ -10,6 +10,7 @@ import com.runmate.runningevent.dto.response.RunningEventListResponseDto;
 import com.runmate.runningevent.dto.response.RunningEventResponseDto;
 import com.runmate.runningevent.entity.RunningEvent;
 import com.runmate.runningevent.entity.RunningEventParticipant;
+import com.runmate.runningevent.entity.RunningEventStatus;
 import com.runmate.runningevent.mapper.RunningEventMapper;
 import com.runmate.runningevent.repository.RunningEventParticipantRepository;
 import com.runmate.runningevent.repository.RunningEventRepository;
@@ -45,16 +46,27 @@ public class RunningEventService {
         return RunningEventMapper.toResponse(savedEvent);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public Page<RunningEventListResponseDto> getRunningEvents(Pageable pageable) {
-        return runningEventRepository.findAll(pageable)
-                .map(RunningEventMapper::toListResponse);
+        LocalDateTime now = LocalDateTime.now(clock);
+        Page<RunningEvent> events = runningEventRepository.findAll(pageable);
+        for (RunningEvent event : events) {
+            event.closeRecruitmentIfStarted(now);
+        }
+        return events.map(RunningEventMapper::toListResponse);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public RunningEventResponseDto getRunningEvent(Long eventId) {
         RunningEvent runningEvent = runningEventRepository.findById(eventId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RUNNING_EVENT_NOT_FOUND));
+        LocalDateTime now = LocalDateTime.now(clock);
+        RunningEventStatus previousStatus = runningEvent.getStatus();
+        runningEvent.closeRecruitmentIfStarted(now);
+        if (previousStatus != runningEvent.getStatus()) {
+            // 마감 변경의 Auditing updatedAt이 응답에도 반영되도록 먼저 flush한다.
+            runningEventRepository.flush();
+        }
         return RunningEventMapper.toResponse(runningEvent);
     }
 
@@ -86,5 +98,4 @@ public class RunningEventService {
         }
         return event;
     }
-
 }
