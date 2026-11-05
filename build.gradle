@@ -41,3 +41,23 @@ dependencies {
 tasks.named('test') {
 	useJUnitPlatform()
 }
+
+// 실제 PostgreSQL 동시성 테스트는 기존 단위 테스트와 분리해서 명시적으로 실행한다.
+sourceSets {
+	concurrencyTest {
+		compileClasspath += sourceSets.main.output
+		runtimeClasspath += sourceSets.main.output
+	}
+}
+configurations {
+	concurrencyTestImplementation.extendsFrom testImplementation
+	concurrencyTestRuntimeOnly.extendsFrom testRuntimeOnly
+}
+tasks.register('concurrencyTest', Test) {
+	description = 'Reproduces unprotected participation races on isolated PostgreSQL.'
+	group = 'verification'
+	testClassesDirs = sourceSets.concurrencyTest.output.classesDirs
+	classpath = sourceSets.concurrencyTest.runtimeClasspath
+	useJUnitPlatform()
+	testLogging { events 'passed', 'failed'; showStandardStreams = true }
+}

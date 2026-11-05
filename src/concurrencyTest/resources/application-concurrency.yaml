@@ -1,0 +1,16 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5434/runmate_concurrency
+    username: runmate
+    password: runmate
+    hikari:
+      maximum-pool-size: 4
+      transaction-isolation: TRANSACTION_READ_COMMITTED
+      connection-init-sql: SET statement_timeout = '15s'
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    open-in-view: false
+logging:
+  level:
+    org.hibernate.SQL: warn

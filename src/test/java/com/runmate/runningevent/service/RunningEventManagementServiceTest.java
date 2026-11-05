@@ -148,7 +148,7 @@ class RunningEventManagementServiceTest {
     @ParameterizedTest
     @EnumSource(Operation.class)
     void missingEventIsRejected(Operation operation) {
-        when(eventRepository.findById(10L)).thenReturn(Optional.empty());
+        when(eventRepository.findByIdForUpdate(10L)).thenReturn(Optional.empty());
         assertFailure(() -> perform(operation, serviceAt(START.minusHours(1)), CREATOR_EMAIL),
                 ErrorCode.RUNNING_EVENT_NOT_FOUND);
     }
@@ -244,7 +244,7 @@ class RunningEventManagementServiceTest {
     }
 
     private void givenEvent() {
-        when(eventRepository.findById(10L)).thenReturn(Optional.of(event));
+        when(eventRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(event));
     }
 
     private RunningEventService serviceAt(LocalDateTime now) {
