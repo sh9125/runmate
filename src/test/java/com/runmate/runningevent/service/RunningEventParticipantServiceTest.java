@@ -58,7 +58,7 @@ public class RunningEventParticipantServiceTest {
     @Test
     @DisplayName("러닝 이벤트 참가를 성공한다.")
     void createRunningEventParticipant() {
-        //given
+        // 테스트 조건 준비
         Member creator = createMember("홍길동", "example@test.com");
         Member member = createMember("바보", "babao@test.com");
         RunningEvent runningEvent = createRunningEvent(creator);
@@ -69,7 +69,7 @@ public class RunningEventParticipantServiceTest {
 
         when(memberRepository.findByEmail(member.getEmail()))
                 .thenReturn(Optional.of(member));
-        when(runningEventRepository.findById(runningEvent.getId()))
+        when(runningEventRepository.findByIdForUpdate(runningEvent.getId()))
                 .thenReturn(Optional.of(runningEvent));
         when(runningEventParticipantRepository.findByRunningEvent_IdAndMember_Id(runningEvent.getId(), member.getId()))
                 .thenReturn(Optional.empty());
@@ -77,10 +77,10 @@ public class RunningEventParticipantServiceTest {
                 .thenAnswer(invocation ->
                         invocation.getArgument(0, RunningEventParticipant.class));
 
-        //when
+        // 실행
         RunningEventParticipantResponseDto response = runningEventParticipantService.participateRunningEvent(runningEvent.getId(), member.getEmail());
 
-        //then
+        // 결과 검증
         assertThat(response.eventId()).isEqualTo(runningEvent.getId());
         assertThat(response.memberId()).isEqualTo(member.getId());
         assertThat(response.status()).isEqualTo(RunningEventParticipantStatus.PARTICIPATING);
@@ -94,7 +94,7 @@ public class RunningEventParticipantServiceTest {
     @Test
     @DisplayName("중복 참가 실패")
     void failOfDuplication() {
-        //given
+        // 테스트 조건 준비
         Member creator = createMember("홍길동", "example@test.com");
         Member member = createMember("바부", "babo@test.com");
         RunningEvent runningEvent = createRunningEvent(creator);
@@ -104,14 +104,14 @@ public class RunningEventParticipantServiceTest {
 
         when(memberRepository.findByEmail(member.getEmail()))
                 .thenReturn(Optional.of(member));
-        when(runningEventRepository.findById(runningEvent.getId()))
+        when(runningEventRepository.findByIdForUpdate(runningEvent.getId()))
                 .thenReturn(Optional.of(runningEvent));
         RunningEventParticipant existingParticipant = RunningEventParticipant.builder()
                 .runningEvent(runningEvent).member(member).build();
         when(runningEventParticipantRepository.findByRunningEvent_IdAndMember_Id(runningEvent.getId(), member.getId()))
                 .thenReturn(Optional.of(existingParticipant));
 
-        //when & then
+        // 실행 및 결과 검증
         assertThatThrownBy(() -> runningEventParticipantService.participateRunningEvent(runningEvent.getId(), member.getEmail()))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("이미 참가한 러닝 이벤트 입니다.")
@@ -127,7 +127,7 @@ public class RunningEventParticipantServiceTest {
     @Test
     @DisplayName("없는 회원이 러닝 이벤트 참여하면 실패")
     void failOfNoneMember() {
-        //given
+        // 테스트 조건 준비
         Member creator = createMember("홍길동", "example@test.com");
         Member member = createMember("바부", "babo@test.com");
         RunningEvent runningEvent = createRunningEvent(creator);
@@ -137,7 +137,7 @@ public class RunningEventParticipantServiceTest {
         when(memberRepository.findByEmail(member.getEmail()))
                 .thenReturn(Optional.empty());
 
-        //when & then
+        // 실행 및 결과 검증
         assertThatThrownBy(() -> runningEventParticipantService.participateRunningEvent(runningEvent.getId(), member.getEmail()))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("존재하지 않는 회원입니다.")
@@ -151,16 +151,16 @@ public class RunningEventParticipantServiceTest {
     @Test
     @DisplayName("없는 러닝 이벤트 참여하면 실패")
     void failOfNoneRunningEvent() {
-        //given
+        // 테스트 조건 준비
         Long eventId = 10L;
         Member member = createMember("바부", "babo@test.com");
 
         when(memberRepository.findByEmail(member.getEmail()))
                 .thenReturn(Optional.of(member));
-        when(runningEventRepository.findById(eventId))
+        when(runningEventRepository.findByIdForUpdate(eventId))
                 .thenReturn(Optional.empty());
 
-        //when & then
+        // 실행 및 결과 검증
         assertThatThrownBy(() -> runningEventParticipantService.participateRunningEvent(eventId, member.getEmail()))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("존재하지 않는 러닝 이벤트입니다.")
@@ -178,7 +178,7 @@ public class RunningEventParticipantServiceTest {
         RunningEvent event = createRunningEvent(createMember("생성자", "creator@example.com"));
         ReflectionTestUtils.setField(event, "status", RunningEventStatus.CANCELED);
         when(memberRepository.findByEmail(member.getEmail())).thenReturn(Optional.of(member));
-        when(runningEventRepository.findById(10L)).thenReturn(Optional.of(event));
+        when(runningEventRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(event));
 
         assertThatThrownBy(() -> runningEventParticipantService.participateRunningEvent(10L, member.getEmail()))
                 .isInstanceOf(BusinessException.class)
@@ -205,7 +205,7 @@ public class RunningEventParticipantServiceTest {
         // 취소 마감은 지났어도 시작 전이면 재참가 가능하다.
         ReflectionTestUtils.setField(event, "startAt", NOW.plusMinutes(5));
         when(memberRepository.findByEmail(member.getEmail())).thenReturn(Optional.of(member));
-        when(runningEventRepository.findById(10L)).thenReturn(Optional.of(event));
+        when(runningEventRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(event));
         when(runningEventParticipantRepository.findByRunningEvent_IdAndMember_Id(10L, member.getId()))
                 .thenReturn(Optional.of(existingParticipant));
 
@@ -284,7 +284,7 @@ public class RunningEventParticipantServiceTest {
                 .runningEvent(event).member(member).build();
         ReflectionTestUtils.setField(participant, "id", 100L);
         when(memberRepository.findByEmail(member.getEmail())).thenReturn(Optional.of(member));
-        when(runningEventRepository.findById(10L)).thenReturn(Optional.of(event));
+        when(runningEventRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(event));
         when(runningEventParticipantRepository.findByRunningEvent_IdAndMember_Id(10L, member.getId()))
                 .thenReturn(Optional.of(participant));
 
@@ -324,7 +324,7 @@ public class RunningEventParticipantServiceTest {
     void cancelParticipationWithMissingEvent() {
         Member member = createMember("참가자", "runner@example.com");
         when(memberRepository.findByEmail(member.getEmail())).thenReturn(Optional.of(member));
-        when(runningEventRepository.findById(10L)).thenReturn(Optional.empty());
+        when(runningEventRepository.findByIdForUpdate(10L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> runningEventParticipantService.cancelParticipation(10L, member.getEmail()))
                 .isInstanceOf(BusinessException.class)
@@ -345,7 +345,7 @@ public class RunningEventParticipantServiceTest {
         RunningEventParticipant participant = RunningEventParticipant.builder()
                 .runningEvent(event).member(member).build();
         when(memberRepository.findByEmail(member.getEmail())).thenReturn(Optional.of(member));
-        when(runningEventRepository.findById(10L)).thenReturn(Optional.of(event));
+        when(runningEventRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(event));
         when(runningEventParticipantRepository.findByRunningEvent_IdAndMember_Id(10L, member.getId()))
                 .thenReturn(Optional.of(participant));
 
@@ -360,7 +360,7 @@ public class RunningEventParticipantServiceTest {
     private void givenNoParticipation(Member member, RunningEvent event) {
         ReflectionTestUtils.setField(member, "id", 2L);
         when(memberRepository.findByEmail(member.getEmail())).thenReturn(Optional.of(member));
-        when(runningEventRepository.findById(10L)).thenReturn(Optional.of(event));
+        when(runningEventRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(event));
         when(runningEventParticipantRepository.findByRunningEvent_IdAndMember_Id(10L, member.getId()))
                 .thenReturn(Optional.empty());
     }

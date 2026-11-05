@@ -15,13 +15,13 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_DB: runmate
+          POSTGRES_DB: runmate_concurrency
           POSTGRES_USER: runmate
           POSTGRES_PASSWORD: runmate
         ports:
-          - 5432:5432
+          - 5434:5432
         options: >-
-          --health-cmd="pg_isready -U runmate -d runmate"
+          --health-cmd="pg_isready -U runmate -d runmate_concurrency"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
@@ -40,8 +40,8 @@ jobs:
         run: chmod +x gradlew
 
       - name: 빌드 및 테스트
-        run: ./gradlew test
+        run: ./gradlew test concurrencyTest
         env:
-          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/runmate
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5434/runmate_concurrency
           SPRING_DATASOURCE_USERNAME: runmate
           SPRING_DATASOURCE_PASSWORD: runmate

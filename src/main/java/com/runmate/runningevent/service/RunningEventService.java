@@ -48,8 +48,8 @@ public class RunningEventService {
 
     @Transactional
     public Page<RunningEventListResponseDto> getRunningEvents(Pageable pageable) {
+        Page<RunningEvent> events = runningEventRepository.findPageForUpdate(pageable);
         LocalDateTime now = LocalDateTime.now(clock);
-        Page<RunningEvent> events = runningEventRepository.findAll(pageable);
         for (RunningEvent event : events) {
             event.closeRecruitmentIfStarted(now);
         }
@@ -58,7 +58,7 @@ public class RunningEventService {
 
     @Transactional
     public RunningEventResponseDto getRunningEvent(Long eventId) {
-        RunningEvent runningEvent = runningEventRepository.findById(eventId)
+        RunningEvent runningEvent = runningEventRepository.findByIdForUpdate(eventId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RUNNING_EVENT_NOT_FOUND));
         LocalDateTime now = LocalDateTime.now(clock);
         RunningEventStatus previousStatus = runningEvent.getStatus();
@@ -91,7 +91,7 @@ public class RunningEventService {
     }
 
     private RunningEvent findOwnedEvent(Long eventId, String memberEmail) {
-        RunningEvent event = runningEventRepository.findById(eventId)
+        RunningEvent event = runningEventRepository.findByIdForUpdate(eventId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RUNNING_EVENT_NOT_FOUND));
         if (!event.getCreator().getEmail().equals(memberEmail)) {
             throw new BusinessException(ErrorCode.NOT_EVENT_CREATOR);

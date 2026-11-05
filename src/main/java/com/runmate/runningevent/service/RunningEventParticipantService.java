@@ -30,7 +30,7 @@ public class RunningEventParticipantService {
     @Transactional
     public RunningEventParticipantResponseDto participateRunningEvent(Long runningEventId, String memberEmail) {
         Member member = memberRepository.findByEmail(memberEmail).orElseThrow(() -> new BusinessException(ErrorCode.MEMBER_NOT_FOUND));
-        RunningEvent savedEvent = runningEventRepository.findById(runningEventId).orElseThrow(() -> new BusinessException(ErrorCode.RUNNING_EVENT_NOT_FOUND));
+        RunningEvent savedEvent = runningEventRepository.findByIdForUpdate(runningEventId).orElseThrow(() -> new BusinessException(ErrorCode.RUNNING_EVENT_NOT_FOUND));
 
         if (savedEvent.getStatus() == RunningEventStatus.CANCELED) {
             throw new BusinessException(ErrorCode.EVENT_CANCELED);
@@ -61,7 +61,7 @@ public class RunningEventParticipantService {
     public RunningEventParticipantResponseDto cancelParticipation(Long runningEventId, String memberEmail) {
         Member member = memberRepository.findByEmail(memberEmail)
                 .orElseThrow(() -> new BusinessException(ErrorCode.MEMBER_NOT_FOUND));
-        runningEventRepository.findById(runningEventId)
+        runningEventRepository.findByIdForUpdate(runningEventId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RUNNING_EVENT_NOT_FOUND));
         RunningEventParticipant participant = runningEventParticipantRepository
                 .findByRunningEvent_IdAndMember_Id(runningEventId, member.getId())
