@@ -31,6 +31,15 @@ class RunningEventParticipationTest {
     }
 
     @Test
+    void waitlistClosesExactlyTenMinutesBeforeStart() {
+        LocalDateTime cutoff = START.minusMinutes(10);
+
+        assertThat(event.isWaitlistOpen(cutoff.minusNanos(1))).isTrue();
+        assertThat(event.isWaitlistOpen(cutoff)).isFalse();
+        event.validateRecruitmentOpen(cutoff);
+    }
+
+    @Test
     void fullEventRemainsRecruitingAndRejectsParticipation() {
         assertFailure(() -> event.validateParticipationAllowed(START.minusHours(1)), ErrorCode.EVENT_CAPACITY_FULL);
         assertFailure(event::increaseCurrentParticipantCount, ErrorCode.EVENT_CAPACITY_FULL);

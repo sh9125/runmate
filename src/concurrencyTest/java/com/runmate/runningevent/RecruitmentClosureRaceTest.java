@@ -66,6 +66,7 @@ class RecruitmentClosureRaceTest {
         assertThat(jdbc.queryForObject("select current_database()", String.class)).isEqualTo("runmate_concurrency");
         assertThat(jdbc.queryForObject("show transaction_isolation", String.class)).isEqualTo("read committed");
         transactions.executeWithoutResult(tx -> {
+            jdbc.update("delete from running_event_waitlist_entries");
             participants.deleteAllInBatch();
             events.deleteAllInBatch();
             members.deleteAllInBatch();

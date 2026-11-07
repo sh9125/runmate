@@ -53,13 +53,16 @@ public class RunningEventServiceTest {
     @Mock
     private RunningEventParticipantRepository runningEventParticipantRepository;
 
+    @Mock
+    private RunningEventWaitlistService waitlistService;
+
     private RunningEventService runningEventService;
 
     @BeforeEach
     void setUp() {
         Clock clock = Clock.fixed(NOW.atZone(ZONE).toInstant(), ZONE);
         runningEventService = new RunningEventService(runningEventRepository, memberRepository,
-                runningEventParticipantRepository, clock);
+                runningEventParticipantRepository, clock, waitlistService);
     }
 
     @Test

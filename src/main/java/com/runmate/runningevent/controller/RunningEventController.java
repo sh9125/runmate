@@ -2,11 +2,14 @@ package com.runmate.runningevent.controller;
 
 import com.runmate.runningevent.dto.request.RunningEventCreateRequestDto;
 import com.runmate.runningevent.dto.request.RunningEventUpdateRequestDto;
+import com.runmate.runningevent.dto.response.RunningEventApplicationResponse;
 import com.runmate.runningevent.dto.response.RunningEventListResponseDto;
 import com.runmate.runningevent.dto.response.RunningEventParticipantResponseDto;
 import com.runmate.runningevent.dto.response.RunningEventResponseDto;
+import com.runmate.runningevent.dto.response.RunningEventWaitlistResponseDto;
 import com.runmate.runningevent.service.RunningEventParticipantService;
 import com.runmate.runningevent.service.RunningEventService;
+import com.runmate.runningevent.service.RunningEventWaitlistService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springdoc.core.annotations.ParameterObject;
@@ -23,6 +26,7 @@ import org.springframework.web.bind.annotation.*;
 public class RunningEventController {
     private final RunningEventService runningEventService;
     private final RunningEventParticipantService runningEventParticipantService;
+    private final RunningEventWaitlistService waitlistService;
 
     @PostMapping
     public ResponseEntity<RunningEventResponseDto> createRunningEvent(
@@ -63,9 +67,9 @@ public class RunningEventController {
     }
 
     @PostMapping("/{eventId}/participants")
-    public ResponseEntity<RunningEventParticipantResponseDto> participateRunningEvent(@PathVariable Long eventId, Authentication authentication) {
-        RunningEventParticipantResponseDto runningEventParticipantResponseDto = runningEventParticipantService.participateRunningEvent(eventId, authentication.getName());
-        return ResponseEntity.status(HttpStatus.CREATED).body(runningEventParticipantResponseDto);
+    public ResponseEntity<RunningEventApplicationResponse> participateRunningEvent(@PathVariable Long eventId, Authentication authentication) {
+        RunningEventApplicationResponse response = runningEventParticipantService.participateRunningEvent(eventId, authentication.getName());
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @PostMapping("/{eventId}/participants/cancel")
@@ -74,5 +78,19 @@ public class RunningEventController {
     ) {
         return ResponseEntity.ok(runningEventParticipantService.cancelParticipation(
                 eventId, authentication.getName()));
+    }
+
+    @GetMapping("/{eventId}/waitlist/me")
+    public ResponseEntity<RunningEventWaitlistResponseDto> getMyWaitlistPosition(
+            @PathVariable Long eventId, Authentication authentication
+    ) {
+        return ResponseEntity.ok(waitlistService.getMyWaitlistPosition(eventId, authentication.getName()));
+    }
+
+    @DeleteMapping("/{eventId}/waitlist/me")
+    public ResponseEntity<RunningEventWaitlistResponseDto> cancelWaitlist(
+            @PathVariable Long eventId, Authentication authentication
+    ) {
+        return ResponseEntity.ok(waitlistService.cancelWaitlist(eventId, authentication.getName()));
     }
 }

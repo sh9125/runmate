@@ -46,13 +46,16 @@ public class RunningEventParticipantServiceTest {
     @Mock
     private RunningEventParticipantRepository runningEventParticipantRepository;
 
+    @Mock
+    private RunningEventWaitlistService waitlistService;
+
     private  RunningEventParticipantService runningEventParticipantService;
 
     @BeforeEach
     void setUp() {
         Clock clock = Clock.fixed(NOW.atZone(ZONE).toInstant(), ZONE);
         runningEventParticipantService = new RunningEventParticipantService(
-                runningEventParticipantRepository, memberRepository, runningEventRepository, clock);
+                runningEventParticipantRepository, memberRepository, runningEventRepository, clock, waitlistService);
     }
 
     @Test
@@ -78,7 +81,9 @@ public class RunningEventParticipantServiceTest {
                         invocation.getArgument(0, RunningEventParticipant.class));
 
         // 실행
-        RunningEventParticipantResponseDto response = runningEventParticipantService.participateRunningEvent(runningEvent.getId(), member.getEmail());
+        var result = runningEventParticipantService.participateRunningEvent(runningEvent.getId(), member.getEmail());
+        assertThat(result).isInstanceOf(RunningEventParticipantResponseDto.class);
+        RunningEventParticipantResponseDto response = (RunningEventParticipantResponseDto) result;
 
         // 결과 검증
         assertThat(response.eventId()).isEqualTo(runningEvent.getId());
@@ -209,8 +214,9 @@ public class RunningEventParticipantServiceTest {
         when(runningEventParticipantRepository.findByRunningEvent_IdAndMember_Id(10L, member.getId()))
                 .thenReturn(Optional.of(existingParticipant));
 
-        RunningEventParticipantResponseDto response =
-                runningEventParticipantService.participateRunningEvent(10L, member.getEmail());
+        var result = runningEventParticipantService.participateRunningEvent(10L, member.getEmail());
+        assertThat(result).isInstanceOf(RunningEventParticipantResponseDto.class);
+        RunningEventParticipantResponseDto response = (RunningEventParticipantResponseDto) result;
 
         assertThat(response.id()).isEqualTo(100L);
         assertThat(response.status()).isEqualTo(RunningEventParticipantStatus.PARTICIPATING);
@@ -256,18 +262,16 @@ public class RunningEventParticipantServiceTest {
     }
 
     @Test
-    @DisplayName("정원이 가득 차면 최초 신청 기록을 저장하기 전에 거절한다")
-    void firstParticipationRejectsFullEventBeforeSaving() {
+    @DisplayName("정원이 가득 차면 참가 기록 대신 대기 신청을 처리한다")
+    void firstParticipationEnqueuesWhenFull() {
         Member member = createMember("참가자", "runner@example.com");
         RunningEvent event = createRunningEvent(createMember("생성자", "creator@example.com"));
         ReflectionTestUtils.setField(event, "capacity", 1);
         givenNoParticipation(member, event);
 
-        assertThatThrownBy(() -> runningEventParticipantService.participateRunningEvent(10L, member.getEmail()))
-                .isInstanceOf(BusinessException.class)
-                .extracting(exception -> ((BusinessException) exception).getErrorCode())
-                .isEqualTo(ErrorCode.EVENT_CAPACITY_FULL);
+        runningEventParticipantService.participateRunningEvent(10L, member.getEmail());
 
+        verify(waitlistService).enqueue(event, member, NOW);
         assertThat(event.getCurrentParticipantCount()).isEqualTo(1);
         verify(runningEventParticipantRepository, never()).save(any());
     }

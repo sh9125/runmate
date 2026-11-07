@@ -31,6 +31,7 @@ public class RunningEventService {
     private final MemberRepository memberRepository;
     private final RunningEventParticipantRepository runningEventParticipantRepository;
     private final Clock clock;
+    private final RunningEventWaitlistService waitlistService;
 
     @Transactional
     public RunningEventResponseDto createRunningEvent(RunningEventCreateRequestDto dto, String creatorEmail) {
@@ -74,9 +75,14 @@ public class RunningEventService {
     public RunningEventResponseDto updateRunningEvent(Long eventId, RunningEventUpdateRequestDto dto,
                                                       String memberEmail) {
         RunningEvent event = findOwnedEvent(eventId, memberEmail);
+        int previousCapacity = event.getCapacity();
+        LocalDateTime now = LocalDateTime.now(clock);
         event.update(dto.getTitle(), dto.getDescription(), dto.getRegion(), dto.getRunningPlace(),
                 dto.getMeetingPlace(), dto.getStartAt(), dto.getPreferredPaceSeconds(),
-                dto.getTargetDistanceKm(), dto.getCapacity(), LocalDateTime.now(clock));
+                dto.getTargetDistanceKm(), dto.getCapacity(), now);
+        if (event.getCapacity() > previousCapacity) {
+            waitlistService.promote(event, now, event.getCapacity() - event.getCurrentParticipantCount());
+        }
         // Auditing의 updatedAt도 응답에 반영되도록 변경을 먼저 flush한다.
         runningEventRepository.flush();
         return RunningEventMapper.toResponse(event);

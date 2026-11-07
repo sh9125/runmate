@@ -12,10 +12,13 @@ import com.runmate.member.service.MemberService;
 import com.runmate.runningevent.controller.RunningEventController;
 import com.runmate.runningevent.dto.response.RunningEventParticipantResponseDto;
 import com.runmate.runningevent.dto.response.RunningEventResponseDto;
+import com.runmate.runningevent.dto.response.RunningEventWaitlistResponseDto;
 import com.runmate.runningevent.entity.RunningEventParticipantStatus;
 import com.runmate.runningevent.entity.RunningEventStatus;
+import com.runmate.runningevent.entity.RunningEventWaitlistStatus;
 import com.runmate.runningevent.service.RunningEventParticipantService;
 import com.runmate.runningevent.service.RunningEventService;
+import com.runmate.runningevent.service.RunningEventWaitlistService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -60,6 +63,8 @@ class ApiExceptionHandlingTest {
     @MockitoBean
     private RunningEventParticipantService participantService;
     @MockitoBean
+    private RunningEventWaitlistService waitlistService;
+    @MockitoBean
     private MemberService memberService;
     @MockitoBean
     private AuthService authService;
@@ -95,6 +100,42 @@ class ApiExceptionHandlingTest {
         mockMvc.perform(post("/api/v1/running-events/1/participants"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("ALREADY_PARTICIPATING"));
+    }
+
+    @Test
+    void fullEventApplicationReturnsWaitlistPosition() throws Exception {
+        when(participantService.participateRunningEvent(1L, "runner@example.com"))
+                .thenReturn(new RunningEventWaitlistResponseDto(2L, 1L, 3L,
+                        RunningEventWaitlistStatus.WAITING, 1L, LocalDateTime.of(2030, 11, 1, 18, 0)));
+
+        mockMvc.perform(post("/api/v1/running-events/1/participants"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("WAITING"))
+                .andExpect(jsonPath("$.position").value(1));
+    }
+
+    @Test
+    void getMyWaitlistPositionUsesAuthenticatedMember() throws Exception {
+        when(waitlistService.getMyWaitlistPosition(1L, "runner@example.com"))
+                .thenReturn(new RunningEventWaitlistResponseDto(2L, 1L, 3L,
+                        RunningEventWaitlistStatus.WAITING, 2L, LocalDateTime.of(2030, 11, 1, 18, 0)));
+
+        mockMvc.perform(get("/api/v1/running-events/1/waitlist/me"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("WAITING"))
+                .andExpect(jsonPath("$.position").value(2));
+    }
+
+    @Test
+    void cancelMyWaitlistReturnsCanceledWithoutPosition() throws Exception {
+        when(waitlistService.cancelWaitlist(1L, "runner@example.com"))
+                .thenReturn(new RunningEventWaitlistResponseDto(2L, 1L, 3L,
+                        RunningEventWaitlistStatus.CANCELED, null, LocalDateTime.of(2030, 11, 1, 18, 0)));
+
+        mockMvc.perform(delete("/api/v1/running-events/1/waitlist/me"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELED"))
+                .andExpect(jsonPath("$.position").doesNotExist());
     }
 
     @Test
