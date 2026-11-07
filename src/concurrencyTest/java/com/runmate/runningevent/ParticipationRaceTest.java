@@ -7,10 +7,12 @@ import com.runmate.member.repository.MemberRepository;
 import com.runmate.runningevent.entity.RunningEvent;
 import com.runmate.runningevent.entity.RunningEventParticipant;
 import com.runmate.runningevent.dto.request.RunningEventUpdateRequestDto;
+import com.runmate.runningevent.dto.response.RunningEventWaitlistResponseDto;
 import com.runmate.runningevent.repository.RunningEventParticipantRepository;
 import com.runmate.runningevent.repository.RunningEventRepository;
 import com.runmate.runningevent.service.RunningEventParticipantService;
 import com.runmate.runningevent.service.RunningEventService;
+import com.runmate.runningevent.service.RunningEventWaitlistService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,6 +38,7 @@ import static org.assertj.core.api.Assertions.*;
 class ParticipationRaceTest {
     @Autowired RunningEventParticipantService service;
     @Autowired RunningEventService eventService;
+    @Autowired RunningEventWaitlistService waitlistService;
     @Autowired RunningEventRepository events;
     @Autowired RunningEventParticipantRepository participants;
     @Autowired MemberRepository members;
@@ -54,6 +57,7 @@ class ParticipationRaceTest {
         assertThat(jdbc.queryForObject("show transaction_isolation", String.class))
                 .isEqualTo("read committed");
         transactions.executeWithoutResult(tx -> {
+            jdbc.update("delete from running_event_waitlist_entries");
             participants.deleteAllInBatch();
             events.deleteAllInBatch();
             members.deleteAllInBatch();
@@ -80,20 +84,20 @@ class ParticipationRaceTest {
     }
 
     @Test
-    void sequentialControlRejectsSecondMember() {
+    void sequentialControlWaitlistsSecondMember() {
         service.participateRunningEvent(eventId, firstEmail);
-        assertThatThrownBy(() -> service.participateRunningEvent(eventId, secondEmail))
-                .isInstanceOfSatisfying(BusinessException.class,
-                        ex -> assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.EVENT_CAPACITY_FULL));
+        assertThat(service.participateRunningEvent(eventId, secondEmail))
+                .isInstanceOfSatisfying(RunningEventWaitlistResponseDto.class,
+                        response -> assertThat(response.position()).isEqualTo(1L));
         assertSnapshot(2, 2);
     }
 
     @Test
     void lastSeatRaceAllowsExactlyOneParticipant() throws Exception {
         List<Outcome> outcomes = race(firstEmail, secondEmail);
-        assertSingleRejection(outcomes, ErrorCode.EVENT_CAPACITY_FULL);
+        assertThat(outcomes).allSatisfy(outcome -> assertThat(outcome.failure()).isNull());
         assertSnapshot(2, 2);
-        System.out.println("LOCKED last-seat: committed=1, business-rejected=1, stored=2, active=2");
+        assertThat(waitlistCount()).isEqualTo(1);
     }
 
     @Test
@@ -127,8 +131,9 @@ class ParticipationRaceTest {
     void rejoiningAndNewParticipationCompeteForTheSameSeat() throws Exception {
         service.participateRunningEvent(eventId, firstEmail);
         service.cancelParticipation(eventId, firstEmail);
-        assertSingleRejection(race(firstEmail, secondEmail), ErrorCode.EVENT_CAPACITY_FULL);
+        assertThat(race(firstEmail, secondEmail)).allSatisfy(outcome -> assertThat(outcome.failure()).isNull());
         assertSnapshot(2, 2);
+        assertThat(waitlistCount()).isEqualTo(1);
     }
 
     @Test
@@ -137,9 +142,9 @@ class ParticipationRaceTest {
         List<Outcome> outcomes = race(() -> service.cancelParticipation(eventId, firstEmail),
                 () -> service.participateRunningEvent(eventId, secondEmail));
         assertThat(outcomes.get(0).failure()).isNull();
-        assertOptionalRejection(outcomes.get(1), ErrorCode.EVENT_CAPACITY_FULL);
-        int expected = outcomes.get(1).failure() == null ? 2 : 1;
-        assertSnapshot(expected, expected);
+        assertThat(outcomes.get(1).failure()).isNull();
+        assertSnapshot(2, 2);
+        assertThat(waitlistCount()).isZero();
         assertThat(jdbc.queryForObject("select status from running_event_participants where running_event_id=? and member_id=(select id from members where email=?)",
                 String.class, eventId, firstEmail)).isEqualTo("CANCELED");
     }
@@ -157,16 +162,104 @@ class ParticipationRaceTest {
     }
 
     @Test
-    void capacityReductionAndParticipationCannotBothSucceed() throws Exception {
+    void capacityReductionLeavesApplicantParticipatingOrWaiting() throws Exception {
         List<Outcome> outcomes = race(() -> eventService.updateRunningEvent(eventId, update(startAt, 1), "creator@race.test"),
                 () -> service.participateRunningEvent(eventId, firstEmail));
-        assertThat(outcomes.stream().filter(o -> o.failure() == null).count()).isEqualTo(1);
         assertOptionalRejection(outcomes.get(0), ErrorCode.CAPACITY_BELOW_PARTICIPANTS);
-        assertOptionalRejection(outcomes.get(1), ErrorCode.EVENT_CAPACITY_FULL);
+        assertThat(outcomes.get(1).failure()).isNull();
         int expected = outcomes.get(0).failure() == null ? 1 : 2;
         assertSnapshot(expected, expected);
+        assertThat(waitlistCount()).isEqualTo(2 - expected);
         assertThat(jdbc.queryForObject("select capacity from running_events where id=?", Integer.class, eventId))
                 .isEqualTo(expected);
+    }
+
+    @Test
+    void reapplyingAfterCancelMovesBehindExistingWaiter() {
+        String thirdEmail = member("third").getEmail();
+        service.participateRunningEvent(eventId, firstEmail);
+        service.participateRunningEvent(eventId, secondEmail);
+        service.participateRunningEvent(eventId, thirdEmail);
+
+        waitlistService.cancelWaitlist(eventId, secondEmail);
+        assertThat(service.participateRunningEvent(eventId, secondEmail))
+                .isInstanceOfSatisfying(RunningEventWaitlistResponseDto.class,
+                        response -> assertThat(response.position()).isEqualTo(2L));
+        service.cancelParticipation(eventId, firstEmail);
+
+        assertThat(waitlistService.getMyWaitlistPosition(eventId, secondEmail).position()).isEqualTo(1L);
+        assertThat(jdbc.queryForObject("select status from running_event_participants where running_event_id=? and member_id=(select id from members where email=?)",
+                String.class, eventId, thirdEmail)).isEqualTo("PARTICIPATING");
+        assertThat(waitlistCount()).isEqualTo(1);
+        assertSnapshot(2, 2);
+    }
+
+    @Test
+    void newApplicantCannotTakeSeatFromExistingWaiter() throws Exception {
+        String thirdEmail = member("third").getEmail();
+        service.participateRunningEvent(eventId, firstEmail);
+        service.participateRunningEvent(eventId, secondEmail);
+
+        List<Outcome> outcomes = race(() -> service.cancelParticipation(eventId, firstEmail),
+                () -> service.participateRunningEvent(eventId, thirdEmail));
+
+        assertThat(outcomes).allSatisfy(outcome -> assertThat(outcome.failure()).isNull());
+        assertThat(waitlistService.getMyWaitlistPosition(eventId, thirdEmail).position()).isEqualTo(1L);
+        assertThat(jdbc.queryForObject("select status from running_event_participants where running_event_id=? and member_id=(select id from members where email=?)",
+                String.class, eventId, secondEmail)).isEqualTo("PARTICIPATING");
+        assertSnapshot(2, 2);
+    }
+
+    @Test
+    void duplicateWaitlistRequestsKeepOneEntry() throws Exception {
+        service.participateRunningEvent(eventId, firstEmail);
+
+        assertSingleRejection(race(secondEmail, secondEmail), ErrorCode.ALREADY_WAITING);
+
+        assertThat(waitlistCount()).isEqualTo(1);
+        assertThat(waitlistService.getMyWaitlistPosition(eventId, secondEmail).position()).isEqualTo(1L);
+        assertSnapshot(2, 2);
+    }
+
+    @Test
+    void concurrentCancellationsPromoteEachWaiterOnce() throws Exception {
+        String thirdEmail = member("third").getEmail();
+        String fourthEmail = member("fourth").getEmail();
+        eventService.updateRunningEvent(eventId, update(startAt, 3), "creator@race.test");
+        service.participateRunningEvent(eventId, firstEmail);
+        service.participateRunningEvent(eventId, secondEmail);
+        service.participateRunningEvent(eventId, thirdEmail);
+        service.participateRunningEvent(eventId, fourthEmail);
+
+        List<Outcome> outcomes = race(() -> service.cancelParticipation(eventId, firstEmail),
+                () -> service.cancelParticipation(eventId, secondEmail));
+
+        assertThat(outcomes).allSatisfy(outcome -> assertThat(outcome.failure()).isNull());
+        assertThat(jdbc.queryForList("""
+                select m.email from running_event_participants p join members m on m.id = p.member_id
+                where p.running_event_id = ? and p.status = 'PARTICIPATING'
+                """, String.class, eventId)).containsExactlyInAnyOrder("creator@race.test", thirdEmail, fourthEmail);
+        assertThat(waitlistCount()).isZero();
+        assertSnapshot(3, 3);
+    }
+
+    @Test
+    void capacityIncreasePromotesTwoWaiters() {
+        String thirdEmail = member("third").getEmail();
+        service.participateRunningEvent(eventId, firstEmail);
+        service.participateRunningEvent(eventId, secondEmail);
+        service.participateRunningEvent(eventId, thirdEmail);
+
+        var response = eventService.updateRunningEvent(eventId, update(startAt, 4), "creator@race.test");
+
+        assertThat(response.currentParticipantCount()).isEqualTo(4);
+        assertThat(waitlistCount()).isZero();
+        assertSnapshot(4, 4);
+    }
+
+    private int waitlistCount() {
+        return jdbc.queryForObject("select count(*) from running_event_waitlist_entries where running_event_id=?",
+                Integer.class, eventId);
     }
 
     @Test

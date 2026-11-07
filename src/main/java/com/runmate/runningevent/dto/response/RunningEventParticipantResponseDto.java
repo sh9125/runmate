@@ -10,5 +10,5 @@ public record RunningEventParticipantResponseDto (
         Long memberId,
         RunningEventParticipantStatus status,
         LocalDateTime createdAt
-) {
+) implements RunningEventApplicationResponse {
 }

@@ -97,6 +97,18 @@ public class RunningEvent {
     }
 
     public void validateParticipationAllowed(LocalDateTime now) {
+        validateRecruitmentOpen(now);
+        if (currentParticipantCount >= capacity) {
+            throw new BusinessException(ErrorCode.EVENT_CAPACITY_FULL);
+        }
+    }
+
+    public boolean isWaitlistOpen(LocalDateTime now) {
+        return status == RunningEventStatus.RECRUITING
+                && now.isBefore(startAt.minusMinutes(PARTICIPATION_CANCELLATION_DEADLINE_MINUTES));
+    }
+
+    public void validateRecruitmentOpen(LocalDateTime now) {
         if (status == RunningEventStatus.CANCELED) {
             throw new BusinessException(ErrorCode.EVENT_CANCELED);
         }
@@ -105,9 +117,6 @@ public class RunningEvent {
         }
         if (!now.isBefore(startAt)) {
             throw new BusinessException(ErrorCode.EVENT_ALREADY_STARTED);
-        }
-        if (currentParticipantCount >= capacity) {
-            throw new BusinessException(ErrorCode.EVENT_CAPACITY_FULL);
         }
     }
 

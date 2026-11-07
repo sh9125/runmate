@@ -4,9 +4,11 @@ import com.runmate.global.exception.BusinessException;
 import com.runmate.global.exception.ErrorCode;
 import com.runmate.member.entity.Member;
 import com.runmate.member.repository.MemberRepository;
+import com.runmate.runningevent.dto.response.RunningEventApplicationResponse;
 import com.runmate.runningevent.dto.response.RunningEventParticipantResponseDto;
 import com.runmate.runningevent.entity.RunningEvent;
 import com.runmate.runningevent.entity.RunningEventParticipant;
+import com.runmate.runningevent.entity.RunningEventParticipantStatus;
 import com.runmate.runningevent.entity.RunningEventStatus;
 import com.runmate.runningevent.mapper.RunningEventParticipantMapper;
 import com.runmate.runningevent.repository.RunningEventParticipantRepository;
@@ -26,9 +28,10 @@ public class RunningEventParticipantService {
     private final MemberRepository memberRepository;
     private final RunningEventRepository runningEventRepository;
     private final Clock clock;
+    private final RunningEventWaitlistService waitlistService;
 
     @Transactional
-    public RunningEventParticipantResponseDto participateRunningEvent(Long runningEventId, String memberEmail) {
+    public RunningEventApplicationResponse participateRunningEvent(Long runningEventId, String memberEmail) {
         Member member = memberRepository.findByEmail(memberEmail).orElseThrow(() -> new BusinessException(ErrorCode.MEMBER_NOT_FOUND));
         RunningEvent savedEvent = runningEventRepository.findByIdForUpdate(runningEventId).orElseThrow(() -> new BusinessException(ErrorCode.RUNNING_EVENT_NOT_FOUND));
 
@@ -38,8 +41,14 @@ public class RunningEventParticipantService {
 
         LocalDateTime now = LocalDateTime.now(clock);
         Optional<RunningEventParticipant> participant = runningEventParticipantRepository.findByRunningEvent_IdAndMember_Id(runningEventId, member.getId());
+        if (participant.isPresent() && participant.get().getStatus() == RunningEventParticipantStatus.PARTICIPATING) {
+            throw new BusinessException(ErrorCode.ALREADY_PARTICIPATING);
+        }
+        savedEvent.validateRecruitmentOpen(now);
+        if (savedEvent.getCurrentParticipantCount() >= savedEvent.getCapacity()) {
+            return waitlistService.enqueue(savedEvent, member, now);
+        }
         if (participant.isEmpty()) {
-            savedEvent.validateParticipationAllowed(now);
             RunningEventParticipant runningEventParticipant = RunningEventParticipant.builder()
                     .runningEvent(savedEvent)
                     .member(member)
@@ -61,13 +70,15 @@ public class RunningEventParticipantService {
     public RunningEventParticipantResponseDto cancelParticipation(Long runningEventId, String memberEmail) {
         Member member = memberRepository.findByEmail(memberEmail)
                 .orElseThrow(() -> new BusinessException(ErrorCode.MEMBER_NOT_FOUND));
-        runningEventRepository.findByIdForUpdate(runningEventId)
+        RunningEvent event = runningEventRepository.findByIdForUpdate(runningEventId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RUNNING_EVENT_NOT_FOUND));
         RunningEventParticipant participant = runningEventParticipantRepository
                 .findByRunningEvent_IdAndMember_Id(runningEventId, member.getId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_PARTICIPATING));
 
-        participant.cancel(LocalDateTime.now(clock));
+        LocalDateTime now = LocalDateTime.now(clock);
+        participant.cancel(now);
+        waitlistService.promote(event, now, 1);
         return RunningEventParticipantMapper.toResponse(participant);
     }
 }

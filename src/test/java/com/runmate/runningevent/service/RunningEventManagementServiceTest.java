@@ -249,7 +249,8 @@ class RunningEventManagementServiceTest {
 
     private RunningEventService serviceAt(LocalDateTime now) {
         Clock clock = Clock.fixed(now.atZone(ZONE).toInstant(), ZONE);
-        return new RunningEventService(eventRepository, memberRepository, participantRepository, clock);
+        return new RunningEventService(eventRepository, memberRepository, participantRepository, clock,
+                org.mockito.Mockito.mock(RunningEventWaitlistService.class));
     }
 
     private void perform(Operation operation, RunningEventService service, String email) {
