@@ -85,6 +85,69 @@ class AuthRefreshIntegrationTest {
     }
 
     @Test
+    void profileChangesKeepEmailAndRequireCurrentPassword() throws Exception {
+        final String profilePath = "/api/v1/members/me";
+        String loginResponse = mvc.perform(post(AUTH + "/login").contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(java.util.Map.of("email", EMAIL, "password", PASSWORD))))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String bearer = "Bearer " + json.readTree(loginResponse).get("accessToken").asString();
+        String profile = """
+                {"email":"other@auth.test","name":"새 이름","nickname":"new-runner","region":"부산",
+                 "averagePaceSeconds":390,"preferredDistanceKm":7.25}
+                """;
+        mvc.perform(put(profilePath).contentType(MediaType.APPLICATION_JSON).content(profile))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(put(profilePath).header(HttpHeaders.AUTHORIZATION, bearer)
+                        .contentType(MediaType.APPLICATION_JSON).content(profile))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value(EMAIL))
+                .andExpect(jsonPath("$.nickname").value("new-runner"))
+                .andExpect(jsonPath("$.password").doesNotExist());
+        entityManager.flush();
+        entityManager.clear();
+        Member updated = members.findByEmail(EMAIL).orElseThrow();
+        assertThat(updated.getName()).isEqualTo("새 이름");
+        assertThat(updated.getRegion()).isEqualTo("부산");
+        assertThat(updated.getAveragePaceSeconds()).isEqualTo(390);
+        assertThat(updated.getPreferredDistanceKm()).isEqualByComparingTo("7.25");
+        assertThat(passwordEncoder.matches(PASSWORD, updated.getPassword())).isTrue();
+
+        String passwordChange = """
+                {"name":"새 이름","nickname":"new-runner","region":"부산","averagePaceSeconds":390,
+                 "preferredDistanceKm":7.25,"currentPassword":"%s","newPassword":"%s"}
+                """;
+        mvc.perform(put(profilePath).header(HttpHeaders.AUTHORIZATION, bearer)
+                        .contentType(MediaType.APPLICATION_JSON).content(passwordChange.formatted(PASSWORD, "1234567")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("PASSWORD_TOO_SHORT"));
+        mvc.perform(put(profilePath).header(HttpHeaders.AUTHORIZATION, bearer)
+                        .contentType(MediaType.APPLICATION_JSON).content(passwordChange.formatted(PASSWORD, "가".repeat(24))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("PASSWORD_TOO_LONG"));
+        mvc.perform(put(profilePath).header(HttpHeaders.AUTHORIZATION, bearer)
+                        .contentType(MediaType.APPLICATION_JSON).content(passwordChange.formatted("wrong-password", "new-password123")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INCORRECT_CURRENT_PASSWORD"));
+        mvc.perform(put(profilePath).header(HttpHeaders.AUTHORIZATION, bearer)
+                        .contentType(MediaType.APPLICATION_JSON).content(passwordChange.formatted(PASSWORD, "new-password123")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.newPassword").doesNotExist());
+        entityManager.flush();
+        entityManager.clear();
+        assertThat(passwordEncoder.matches("new-password123", members.findByEmail(EMAIL).orElseThrow().getPassword())).isTrue();
+    }
+
+    @Test
+    void signupRejectsShortPasswordWithSameErrorAsPasswordChange() throws Exception {
+        mvc.perform(post("/api/v1/members/signup").contentType(MediaType.APPLICATION_JSON).content("""
+                {"email":"signup@auth.test","password":"1234567","name":"러너","nickname":"signup-runner",
+                 "region":"서울","averagePaceSeconds":360,"preferredDistanceKm":5}
+                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("PASSWORD_TOO_SHORT"));
+    }
+
+    @Test
     void expiredCookieCannotRestoreLogin() throws Exception {
         Cookie cookie = login();
         entityManager.flush();

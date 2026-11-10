@@ -6,10 +6,12 @@ import com.runmate.auth.jwt.JwtTokenProvider;
 import com.runmate.auth.service.AuthService;
 import com.runmate.global.config.SecurityConfig;
 import com.runmate.member.controller.MemberController;
+import com.runmate.member.dto.response.MemberResponseDto;
 import com.runmate.member.entity.Member;
 import com.runmate.member.repository.MemberRepository;
 import com.runmate.member.service.MemberService;
 import com.runmate.runningevent.controller.RunningEventController;
+import com.runmate.runningevent.dto.request.RunningEventListFilter;
 import com.runmate.runningevent.dto.response.RunningEventParticipantResponseDto;
 import com.runmate.runningevent.dto.response.RunningEventResponseDto;
 import com.runmate.runningevent.dto.response.RunningEventWaitlistResponseDto;
@@ -26,6 +28,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.mapping.JpaMetamodelMappingContext;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.AccessDeniedException;
@@ -34,9 +39,10 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.util.Optional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasItem;
@@ -79,13 +85,44 @@ class ApiExceptionHandlingTest {
     private JpaMetamodelMappingContext jpaMappingContext;
 
     @Test
+    void eventListBindsFiltersAndDefaultsToNewestCreationFirst() throws Exception {
+        var page = PageRequest.of(0, 9, Sort.by(Sort.Direction.DESC, "createdAt", "id"));
+        var filter = new RunningEventListFilter("노을", "서울", 330, 390, BigDecimal.valueOf(5), null, RunningEventStatus.RECRUITING);
+        when(runningEventService.getRunningEvents(page, filter)).thenReturn(Page.empty(page));
+
+        mockMvc.perform(get("/api/v1/running-events").param("size", "9").param("keyword", "노을")
+                        .param("region", "서울").param("minPace", "330").param("maxPace", "390")
+                        .param("minDistance", "5").param("status", "RECRUITING"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(0));
+        verify(runningEventService).getRunningEvents(page, filter);
+    }
+
+    @Test
+    void profileReturnsAuthenticatedMemberNickname() throws Exception {
+        when(memberService.getMember("runner@example.com"))
+                .thenReturn(new MemberResponseDto("runner@example.com", "러너", "한강러너", "서울", 360, BigDecimal.TEN));
+
+        mockMvc.perform(get("/api/v1/members/me").param("email", "other@example.com"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nickname").value("한강러너"));
+    }
+
+    @Test
+    @WithAnonymousUser
+    void profileRequiresAuthentication() throws Exception {
+        mockMvc.perform(get("/api/v1/members/me")).andExpect(status().isUnauthorized());
+        verifyNoInteractions(memberService);
+    }
+
+    @Test
     @DisplayName("상세 조회는 인증 이메일을 전달하고 내 상태를 기존 이벤트 정보와 함께 반환한다")
     void detailReturnsViewerState() throws Exception {
         when(runningEventService.getRunningEvent(1L, "runner@example.com"))
                 .thenReturn(new RunningEventResponseDto(1L, "한강 러닝", "설명", "서울", "한강", "정문",
                         LocalDateTime.of(2030, 11, 1, 19, 0), 360, BigDecimal.valueOf(5), 2, 2,
                         RunningEventStatus.RECRUITING, 2L, "생성자", null, null, false,
-                        MyRunningEventApplicationStatus.WAITING, null, 2L));
+                        MyRunningEventApplicationStatus.WAITING, null, 2L, List.of("생성자", "참가자")));
 
         mockMvc.perform(get("/api/v1/running-events/1").param("email", "other@example.com"))
                 .andExpect(status().isOk())
@@ -94,6 +131,8 @@ class ApiExceptionHandlingTest {
                 .andExpect(jsonPath("$.isCreator").value(false))
                 .andExpect(jsonPath("$.applicationStatus").value("WAITING"))
                 .andExpect(jsonPath("$.waitlistPosition").value(2))
+                .andExpect(jsonPath("$.participantNicknames[0]").value("생성자"))
+                .andExpect(jsonPath("$.participantNicknames[1]").value("참가자"))
                 .andExpect(jsonPath("$.endReason").doesNotExist());
         verify(runningEventService).getRunningEvent(1L, "runner@example.com");
     }
@@ -105,7 +144,7 @@ class ApiExceptionHandlingTest {
                 .thenReturn(new RunningEventResponseDto(1L, "한강 러닝", "설명", "서울", "한강", "정문",
                         LocalDateTime.of(2030, 11, 1, 19, 0), 360, BigDecimal.valueOf(5), 2, 1,
                         RunningEventStatus.RECRUITING, 2L, "생성자", null, null, false,
-                        MyRunningEventApplicationStatus.NONE, null, null));
+                        MyRunningEventApplicationStatus.NONE, null, null, List.of("생성자")));
 
         mockMvc.perform(get("/api/v1/running-events/1"))
                 .andExpect(status().isOk())
@@ -380,6 +419,26 @@ class ApiExceptionHandlingTest {
     }
 
     @Test
+    void completeEventReturnsCompletedState() throws Exception {
+        when(runningEventService.completeRunningEvent(1L, "runner@example.com"))
+                .thenReturn(eventResponse(RunningEventStatus.COMPLETED));
+
+        mockMvc.perform(post("/api/v1/running-events/1/complete").param("email", "other@example.com"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.participantNicknames[0]").value("생성자"));
+        verify(runningEventService).completeRunningEvent(1L, "runner@example.com");
+    }
+
+    @Test
+    @WithAnonymousUser
+    void completingEventRequiresAuthentication() throws Exception {
+        mockMvc.perform(post("/api/v1/running-events/1/complete"))
+                .andExpect(status().isUnauthorized());
+        verifyNoInteractions(runningEventService);
+    }
+
+    @Test
     @DisplayName("개최 취소는 본문 없이 요청하고 취소 상태를 반환한다")
     void cancelEvent() throws Exception {
         when(runningEventService.cancelRunningEvent(1L, "runner@example.com"))
@@ -521,6 +580,6 @@ class ApiExceptionHandlingTest {
                         ? MyRunningEventApplicationStatus.ENDED
                         : MyRunningEventApplicationStatus.PARTICIPATING,
                 status == RunningEventStatus.CANCELED
-                        ? MyRunningEventEndReason.EVENT_CANCELED : null, null);
+                        ? MyRunningEventEndReason.EVENT_CANCELED : null, null, List.of("생성자"));
     }
 }

@@ -15,8 +15,6 @@ public class MemberSignupRequestDto {
     @Email
     private String email;
 
-    @NotBlank
-    @Size(min = 8, max = 100)
     private String password;
 
     @NotBlank

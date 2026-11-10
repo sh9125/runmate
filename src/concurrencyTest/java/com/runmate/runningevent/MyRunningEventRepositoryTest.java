@@ -4,6 +4,7 @@ import com.runmate.member.entity.Member;
 import com.runmate.member.repository.MemberRepository;
 import com.runmate.runningevent.entity.RunningEvent;
 import com.runmate.runningevent.entity.RunningEventParticipant;
+import com.runmate.runningevent.entity.RunningEventStatus;
 import com.runmate.runningevent.entity.RunningEventWaitlistEntry;
 import com.runmate.runningevent.repository.RunningEventParticipantRepository;
 import com.runmate.runningevent.repository.RunningEventRepository;
@@ -12,6 +13,7 @@ import com.runmate.runningevent.service.MyRunningEventService;
 import com.runmate.runningevent.service.RunningEventService;
 import com.runmate.runningevent.service.RunningEventParticipantService;
 import com.runmate.runningevent.dto.request.RunningEventUpdateRequestDto;
+import com.runmate.runningevent.dto.request.RunningEventListFilter;
 import com.runmate.runningevent.dto.response.MyRunningEventApplicationStatus;
 import com.runmate.runningevent.dto.response.MyRunningEventEndReason;
 import com.runmate.global.exception.BusinessException;
@@ -76,6 +78,95 @@ class MyRunningEventRepositoryTest {
     void setUp() {
         creator = member();
         viewer = member();
+    }
+
+    @Test
+    void filtersBeforePaginationAndKeepsCreationOrder() {
+        RunningEvent older = event(now.plusDays(2));
+        RunningEvent newer = event(now.plusDays(1));
+        event(now.plusDays(3));
+        events.save(RunningEvent.builder().title("마이페이지").description("조회 테스트")
+                .region("부산").runningPlace("한강").meetingPlace("역").startAt(now.plusDays(1))
+                .preferredPaceSeconds(390).targetDistanceKm(BigDecimal.TEN)
+                .capacity(10).creator(creator).build());
+        var sort = Sort.by(Sort.Direction.DESC, "createdAt", "id");
+        var filter = new RunningEventListFilter("한강", " 서울 ", 360, 390, BigDecimal.valueOf(5), BigDecimal.TEN, null);
+
+        var first = eventService.getRunningEvents(PageRequest.of(0, 2, sort), filter);
+        assertThat(first.getTotalElements()).isEqualTo(3);
+        assertThat(first.getContent().get(1).id()).isEqualTo(newer.getId());
+        assertThat(eventService.getRunningEvents(PageRequest.of(1, 2, sort), filter).getContent())
+                .singleElement().satisfies(result -> assertThat(result.id()).isEqualTo(older.getId()));
+        assertThat(eventService.getRunningEvents(PageRequest.of(0, 2, sort),
+                new RunningEventListFilter("%", null, null, null, null, null, null))).isEmpty();
+    }
+
+    @Test
+    void statusFilterClassifiesStartedEventsBeforePagination() {
+        RunningEvent recruiting = event(now.plusDays(1));
+        RunningEvent started = event(now);
+        RunningEvent canceled = event(now.plusDays(2));
+        canceled.cancel(now);
+
+        var openPage = eventService.getRunningEvents(PageRequest.of(0, 1),
+                new RunningEventListFilter(null, null, null, null, null, null, RunningEventStatus.RECRUITING));
+        assertThat(openPage.getTotalElements()).isEqualTo(1);
+        assertThat(openPage.getContent()).singleElement().satisfies(result -> assertThat(result.id()).isEqualTo(recruiting.getId()));
+        var closedPage = eventService.getRunningEvents(page,
+                new RunningEventListFilter(null, null, null, null, null, null, RunningEventStatus.CLOSED));
+        assertThat(closedPage.getContent()).singleElement().satisfies(result -> {
+            assertThat(result.id()).isEqualTo(started.getId());
+            assertThat(result.status()).isEqualTo(RunningEventStatus.CLOSED);
+        });
+        var canceledPage = eventService.getRunningEvents(page,
+                new RunningEventListFilter(null, null, null, null, null, null, RunningEventStatus.CANCELED));
+        assertThat(canceledPage.getContent()).singleElement().satisfies(result -> assertThat(result.id()).isEqualTo(canceled.getId()));
+    }
+
+    @Test
+    void nonOwnerCannotCompleteStartedEvent() {
+        RunningEvent event = event(now);
+
+        assertThatThrownBy(() -> eventService.completeRunningEvent(event.getId(), viewer.getEmail()))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        error -> assertThat(error.getErrorCode()).isEqualTo(ErrorCode.NOT_EVENT_CREATOR));
+        assertThat(event.getStatus()).isEqualTo(RunningEventStatus.RECRUITING);
+    }
+
+    @Test
+    void completionPreservesParticipantHistoryAndAppearsInCompletedFilter() {
+        RunningEvent event = event(now);
+        participants.save(RunningEventParticipant.builder().runningEvent(event).member(creator).build());
+        participate(event);
+
+        var response = eventService.completeRunningEvent(event.getId(), creator.getEmail());
+        assertThat(response.status()).isEqualTo(RunningEventStatus.COMPLETED);
+        assertThat(response.currentParticipantCount()).isEqualTo(2);
+        assertThat(response.participantNicknames()).containsExactly(creator.getNickname(), viewer.getNickname());
+        assertThat(myEvents.getParticipatingEvents(viewer.getEmail(), page).getContent())
+                .singleElement().satisfies(item -> assertThat(item.event().id()).isEqualTo(event.getId()));
+        var completed = new RunningEventListFilter(null, null, null, null, null, null, RunningEventStatus.COMPLETED);
+        assertThat(eventService.getRunningEvents(page, completed).getContent())
+                .singleElement().satisfies(item -> assertThat(item.id()).isEqualTo(event.getId()));
+
+        assertThatThrownBy(() -> eventService.completeRunningEvent(event.getId(), creator.getEmail()))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        error -> assertThat(error.getErrorCode()).isEqualTo(ErrorCode.EVENT_NOT_COMPLETABLE));
+    }
+
+    @Test
+    void futureAndCanceledEventsCannotBeCompleted() {
+        RunningEvent future = event(now.plusDays(1));
+        RunningEvent canceled = event(now.minusMinutes(1));
+        canceled.cancel(now.minusDays(1));
+
+        for (RunningEvent event : java.util.List.of(future, canceled)) {
+            assertThatThrownBy(() -> eventService.completeRunningEvent(event.getId(), creator.getEmail()))
+                    .isInstanceOfSatisfying(BusinessException.class,
+                            error -> assertThat(error.getErrorCode()).isEqualTo(ErrorCode.EVENT_NOT_COMPLETABLE));
+        }
+        assertThat(future.getStatus()).isEqualTo(RunningEventStatus.RECRUITING);
+        assertThat(canceled.getStatus()).isEqualTo(RunningEventStatus.CANCELED);
     }
 
     @Test
@@ -252,15 +343,18 @@ class MyRunningEventRepositoryTest {
         var owner = eventService.getRunningEvent(event.getId(), creator.getEmail());
         assertThat(owner.isCreator()).isTrue();
         assertThat(owner.applicationStatus()).isEqualTo(MyRunningEventApplicationStatus.PARTICIPATING);
+        assertThat(owner.participantNicknames()).containsExactly(creator.getNickname());
         var none = eventService.getRunningEvent(event.getId(), viewer.getEmail());
         assertThat(none.isCreator()).isFalse();
         assertThat(none.applicationStatus()).isEqualTo(MyRunningEventApplicationStatus.NONE);
 
-        participationService.participateRunningEvent(event.getId(), member().getEmail());
+        Member firstWaiting = member();
+        participationService.participateRunningEvent(event.getId(), firstWaiting.getEmail());
         participationService.participateRunningEvent(event.getId(), viewer.getEmail());
         var waiting = eventService.getRunningEvent(event.getId(), viewer.getEmail());
         assertThat(waiting.applicationStatus()).isEqualTo(MyRunningEventApplicationStatus.WAITING);
         assertThat(waiting.waitlistPosition()).isEqualTo(2L);
+        assertThat(waiting.participantNicknames()).containsExactly(creator.getNickname());
         assertThat(myEvents.getWaitingEvents(viewer.getEmail(), page).getContent())
                 .singleElement().satisfies(r -> assertThat(r.waitlistPosition()).isEqualTo(waiting.waitlistPosition()));
 
@@ -269,10 +363,13 @@ class MyRunningEventRepositoryTest {
                 event.getMeetingPlace(), event.getStartAt(), 360, BigDecimal.valueOf(5), 3), creator.getEmail());
         assertThat(updated.isCreator()).isTrue();
         assertThat(updated.applicationStatus()).isEqualTo(MyRunningEventApplicationStatus.PARTICIPATING);
+        assertThat(updated.participantNicknames())
+                .containsExactly(creator.getNickname(), firstWaiting.getNickname(), viewer.getNickname());
         var promoted = eventService.getRunningEvent(event.getId(), viewer.getEmail());
         assertThat(promoted.applicationStatus()).isEqualTo(MyRunningEventApplicationStatus.PARTICIPATING);
         assertThat(promoted.waitlistPosition()).isNull();
         assertThat(promoted.endReason()).isNull();
+        assertThat(promoted.participantNicknames()).isEqualTo(updated.participantNicknames());
         assertThat(myEvents.getWaitingEvents(viewer.getEmail(), page).getTotalElements()).isZero();
     }
 
@@ -300,6 +397,7 @@ class MyRunningEventRepositoryTest {
         waiting(event).cancel(now.minusMinutes(1));
         var canceledWait = eventService.getRunningEvent(event.getId(), viewer.getEmail());
         assertThat(canceledWait.endReason()).isEqualTo(MyRunningEventEndReason.WAITLIST_CANCELED);
+        assertThat(canceledWait.participantNicknames()).doesNotContain(viewer.getNickname());
         assertThat(myEvents.getEndedEvents(viewer.getEmail(), page).getContent())
                 .singleElement().satisfies(r -> assertThat(r.endReason()).isEqualTo(canceledWait.endReason()));
         event.cancel(now);

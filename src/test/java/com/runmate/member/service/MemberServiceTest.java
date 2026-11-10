@@ -58,6 +58,17 @@ class MemberServiceTest {
     }
 
     @Test
+    void signupRejectsPasswordOverBcryptByteLimitBeforeEncoding() {
+        var request = new MemberSignupRequestDto("runner@example.com", "가".repeat(24), "러너",
+                "한강러너", "서울", 360, BigDecimal.TEN);
+
+        assertThatThrownBy(() -> memberService.signup(request))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        error -> assertThat(error.getErrorCode()).isEqualTo(ErrorCode.PASSWORD_TOO_LONG));
+        verify(passwordEncoder, never()).encode(any());
+    }
+
+    @Test
     @DisplayName("이미 사용 중인 이메일이면 회원가입에 실패한다")
     void signupFailByDuplicateEmail() {
         MemberSignupRequestDto request = createSignupRequest();

@@ -1,5 +1,6 @@
 package com.runmate.runningevent.repository;
 
+import com.runmate.runningevent.dto.request.RunningEventListFilter;
 import com.runmate.runningevent.entity.RunningEvent;
 import jakarta.persistence.EntityNotFoundException;
 import jakarta.persistence.LockModeType;
@@ -102,6 +103,25 @@ public interface RunningEventRepository extends JpaRepository<RunningEvent, Long
     @Query(value = "select e.id from RunningEvent e", countQuery = "select count(e) from RunningEvent e")
     Page<Long> findIds(Pageable pageable);
 
+    @Query("""
+            select e.id from RunningEvent e
+            where (:#{#filter.keyword} = ''
+                or locate(lower(:#{#filter.keyword}), lower(e.title)) > 0
+                or locate(lower(:#{#filter.keyword}), lower(e.description)) > 0
+                or locate(lower(:#{#filter.keyword}), lower(e.runningPlace)) > 0)
+              and (:#{#filter.region} = '' or lower(e.region) = lower(:#{#filter.region}))
+              and coalesce(e.preferredPaceSeconds >= :#{#filter.minPace}, true)
+              and coalesce(e.preferredPaceSeconds < :#{#filter.maxPace}, true)
+              and coalesce(e.targetDistanceKm >= :#{#filter.minDistance}, true)
+              and coalesce(e.targetDistanceKm < :#{#filter.maxDistance}, true)
+              and (:statusName = '' or :statusName = case
+                  when e.status = com.runmate.runningevent.entity.RunningEventStatus.RECRUITING
+                    and e.startAt <= :now then 'CLOSED'
+                  else cast(e.status as String) end)
+            """)
+    Page<Long> findFilteredIds(@Param("filter") RunningEventListFilter filter, @Param("now") LocalDateTime now,
+                               @Param("statusName") String statusName, Pageable pageable);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select e from RunningEvent e where e.id in :ids order by e.id asc")
     List<RunningEvent> findPageEventsForUpdate(@Param("ids") List<Long> ids);
@@ -109,10 +129,18 @@ public interface RunningEventRepository extends JpaRepository<RunningEvent, Long
     // 이 메서드는 서비스의 쓰기 가능한 트랜잭션 안에서 호출한다.
     // 락을 얻기 전에 옛 이벤트 데이터가 영속성 컨텍스트에 들어오지 않도록 ID만 먼저 조회한다.
     default Page<RunningEvent> findPageForUpdate(Pageable pageable) {
+        return lockInPageOrder(findIds(pageable));
+    }
+
+    default Page<RunningEvent> findPageForUpdate(Pageable pageable, RunningEventListFilter filter, LocalDateTime now) {
+        String statusName = filter.status() == null ? "" : filter.status().name();
+        return lockInPageOrder(findFilteredIds(filter, now, statusName, pageable));
+    }
+
+    private Page<RunningEvent> lockInPageOrder(Page<Long> ids) {
         // 사용자가 요청한 페이지와 정렬 순서를 기억한다. 예: [30, 20, 10]
-        Page<Long> ids = findIds(pageable);
         if (ids.isEmpty()) {
-            return new PageImpl<>(List.of(), pageable, ids.getTotalElements());
+            return new PageImpl<>(List.of(), ids.getPageable(), ids.getTotalElements());
         }
 
         // 쿼리의 ID 오름차순 정렬에 따라 [10, 20, 30] 순서로 잠그며 최신 이벤트를 조회한다.

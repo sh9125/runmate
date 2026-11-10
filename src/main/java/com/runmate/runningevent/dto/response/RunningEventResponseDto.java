@@ -4,6 +4,7 @@ import com.runmate.runningevent.entity.RunningEventStatus;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 public record RunningEventResponseDto(
         Long id,
@@ -25,6 +26,7 @@ public record RunningEventResponseDto(
         boolean isCreator,
         MyRunningEventApplicationStatus applicationStatus,
         MyRunningEventEndReason endReason,
-        Long waitlistPosition
+        Long waitlistPosition,
+        List<String> participantNicknames
 ) {
 }

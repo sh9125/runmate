@@ -1,6 +1,7 @@
 package com.runmate.runningevent.controller;
 
 import com.runmate.runningevent.dto.request.RunningEventCreateRequestDto;
+import com.runmate.runningevent.dto.request.RunningEventListFilter;
 import com.runmate.runningevent.dto.request.RunningEventUpdateRequestDto;
 import com.runmate.runningevent.dto.response.RunningEventApplicationResponse;
 import com.runmate.runningevent.dto.response.RunningEventListResponseDto;
@@ -15,6 +16,8 @@ import lombok.RequiredArgsConstructor;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -38,8 +41,13 @@ public class RunningEventController {
     }
 
     @GetMapping
-    public ResponseEntity<Page<RunningEventListResponseDto>> getRunningEvents(@ParameterObject Pageable pageable) {
-        Page<RunningEventListResponseDto> runningEvents = runningEventService.getRunningEvents(pageable);
+    public ResponseEntity<Page<RunningEventListResponseDto>> getRunningEvents(
+            @ParameterObject @ModelAttribute RunningEventListFilter filter,
+            @ParameterObject @PageableDefault(size = 20, sort = {"createdAt", "id"}, direction = Sort.Direction.DESC)
+            Pageable pageable) {
+        Page<RunningEventListResponseDto> runningEvents = filter.isEmpty()
+                ? runningEventService.getRunningEvents(pageable)
+                : runningEventService.getRunningEvents(pageable, filter);
         return ResponseEntity.ok(runningEvents);
     }
 
@@ -65,6 +73,13 @@ public class RunningEventController {
             @PathVariable Long eventId, Authentication authentication
     ) {
         return ResponseEntity.ok(runningEventService.cancelRunningEvent(eventId, authentication.getName()));
+    }
+
+    @PostMapping("/{eventId}/complete")
+    public ResponseEntity<RunningEventResponseDto> completeRunningEvent(
+            @PathVariable Long eventId, Authentication authentication
+    ) {
+        return ResponseEntity.ok(runningEventService.completeRunningEvent(eventId, authentication.getName()));
     }
 
     @PostMapping("/{eventId}/participants")

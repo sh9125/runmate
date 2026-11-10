@@ -7,6 +7,7 @@ import com.runmate.member.repository.MemberRepository;
 import com.runmate.runningevent.dto.request.RunningEventUpdateRequestDto;
 import com.runmate.runningevent.dto.response.RunningEventResponseDto;
 import com.runmate.runningevent.entity.RunningEvent;
+import com.runmate.runningevent.entity.RunningEventParticipantStatus;
 import com.runmate.runningevent.entity.RunningEventStatus;
 import com.runmate.runningevent.repository.RunningEventParticipantRepository;
 import com.runmate.runningevent.repository.RunningEventRepository;
@@ -81,7 +82,8 @@ class RunningEventManagementServiceTest {
         assertThat(response.status()).isEqualTo(RunningEventStatus.RECRUITING);
         verify(eventRepository).flush();
         verify(eventRepository, never()).save(any());
-        verifyNoInteractions(participantRepository);
+        verify(participantRepository).findNicknamesByEventAndStatus(10L, RunningEventParticipantStatus.PARTICIPATING);
+        verifyNoMoreInteractions(participantRepository);
     }
 
     @Test
@@ -95,7 +97,8 @@ class RunningEventManagementServiceTest {
         assertThat(response.status()).isEqualTo(RunningEventStatus.CANCELED);
         assertThat(response.currentParticipantCount()).isEqualTo(3);
         verify(eventRepository).flush();
-        verifyNoInteractions(participantRepository);
+        verify(participantRepository).findNicknamesByEventAndStatus(10L, RunningEventParticipantStatus.PARTICIPATING);
+        verifyNoMoreInteractions(participantRepository);
         verify(eventRepository, never()).delete(any());
     }
 
