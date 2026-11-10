@@ -5,11 +5,13 @@ import com.runmate.global.exception.ErrorCode;
 import com.runmate.member.entity.Member;
 import com.runmate.member.repository.MemberRepository;
 import com.runmate.runningevent.dto.request.RunningEventCreateRequestDto;
+import com.runmate.runningevent.dto.request.RunningEventListFilter;
 import com.runmate.runningevent.dto.request.RunningEventUpdateRequestDto;
 import com.runmate.runningevent.dto.response.RunningEventListResponseDto;
 import com.runmate.runningevent.dto.response.RunningEventResponseDto;
 import com.runmate.runningevent.entity.RunningEvent;
 import com.runmate.runningevent.entity.RunningEventParticipant;
+import com.runmate.runningevent.entity.RunningEventParticipantStatus;
 import com.runmate.runningevent.entity.RunningEventWaitlistEntry;
 import com.runmate.runningevent.entity.RunningEventWaitlistStatus;
 import com.runmate.runningevent.dto.response.MyRunningEventApplicationStatus;
@@ -26,6 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.List;
 
 
 @Service
@@ -49,12 +52,20 @@ public class RunningEventService {
                 .member(creator)
                 .build();
         runningEventParticipantRepository.save(runningEventParticipant);
-        return RunningEventMapper.toCreatorResponse(savedEvent);
+        return RunningEventMapper.toCreatorResponse(savedEvent, List.of(creator.getNickname()));
     }
 
     @Transactional
     public Page<RunningEventListResponseDto> getRunningEvents(Pageable pageable) {
-        Page<RunningEvent> events = runningEventRepository.findPageForUpdate(pageable);
+        return closeStartedEvents(runningEventRepository.findPageForUpdate(pageable));
+    }
+
+    @Transactional
+    public Page<RunningEventListResponseDto> getRunningEvents(Pageable pageable, RunningEventListFilter filter) {
+        return closeStartedEvents(runningEventRepository.findPageForUpdate(pageable, filter, LocalDateTime.now(clock)));
+    }
+
+    private Page<RunningEventListResponseDto> closeStartedEvents(Page<RunningEvent> events) {
         LocalDateTime now = LocalDateTime.now(clock);
         for (RunningEvent event : events) {
             event.closeRecruitmentIfStarted(now);
@@ -87,7 +98,7 @@ public class RunningEventService {
                 : null;
         return RunningEventMapper.toResponse(runningEvent,
                 runningEvent.getCreator().getEmail().equals(member.getEmail()),
-                state.status(), state.endReason(), position);
+                state.status(), state.endReason(), position, findParticipantNicknames(eventId));
     }
 
     @Transactional
@@ -104,7 +115,7 @@ public class RunningEventService {
         }
         // Auditing의 updatedAt도 응답에 반영되도록 변경을 먼저 flush한다.
         runningEventRepository.flush();
-        return RunningEventMapper.toCreatorResponse(event);
+        return RunningEventMapper.toCreatorResponse(event, findParticipantNicknames(eventId));
     }
 
     @Transactional
@@ -112,7 +123,20 @@ public class RunningEventService {
         RunningEvent event = findOwnedEvent(eventId, memberEmail);
         event.cancel(LocalDateTime.now(clock));
         runningEventRepository.flush();
-        return RunningEventMapper.toCreatorResponse(event);
+        return RunningEventMapper.toCreatorResponse(event, findParticipantNicknames(eventId));
+    }
+
+    @Transactional
+    public RunningEventResponseDto completeRunningEvent(Long eventId, String memberEmail) {
+        RunningEvent event = findOwnedEvent(eventId, memberEmail);
+        event.complete(LocalDateTime.now(clock));
+        runningEventRepository.flush();
+        return RunningEventMapper.toCreatorResponse(event, findParticipantNicknames(eventId));
+    }
+
+    private List<String> findParticipantNicknames(Long eventId) {
+        return runningEventParticipantRepository.findNicknamesByEventAndStatus(
+                eventId, RunningEventParticipantStatus.PARTICIPATING);
     }
 
     private RunningEvent findOwnedEvent(Long eventId, String memberEmail) {

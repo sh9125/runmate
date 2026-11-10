@@ -62,4 +62,17 @@ public class Member {
         this.preferredDistanceKm = preferredDistanceKm;
     }
 
+    public void updateProfile(String name, String nickname, String region, Integer averagePaceSeconds,
+                              BigDecimal preferredDistanceKm) {
+        this.name = name;
+        this.nickname = nickname;
+        this.region = region;
+        this.averagePaceSeconds = averagePaceSeconds;
+        this.preferredDistanceKm = preferredDistanceKm;
+    }
+
+    public void changePassword(String encodedPassword) {
+        this.password = encodedPassword;
+    }
+
 }

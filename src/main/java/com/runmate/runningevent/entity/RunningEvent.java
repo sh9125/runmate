@@ -177,6 +177,14 @@ public class RunningEvent {
         this.status = RunningEventStatus.CANCELED;
     }
 
+    public void complete(LocalDateTime now) {
+        closeRecruitmentIfStarted(now);
+        if (status != RunningEventStatus.CLOSED || now.isBefore(startAt)) {
+            throw new BusinessException(ErrorCode.EVENT_NOT_COMPLETABLE);
+        }
+        status = RunningEventStatus.COMPLETED;
+    }
+
     private void validateManagementAllowed(LocalDateTime now) {
         if (status != RunningEventStatus.RECRUITING && status != RunningEventStatus.CLOSED) {
             throw new BusinessException(ErrorCode.EVENT_NOT_MANAGEABLE);

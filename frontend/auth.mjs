@@ -23,7 +23,11 @@ export function createAuthClient(apiOrigin = "http://localhost:8080") {
         const version = ++sessionVersion;
         const response = await authRequest("login", { email, password });
         if (!response.ok) {
-            throw new Error(`로그인 실패 (${response.status})`);
+            const error = await response.json().catch(() => null);
+            const fallback = response.status === 401
+                ? "이메일 또는 비밀번호가 올바르지 않습니다."
+                : "로그인할 수 없습니다. 잠시 후 다시 시도해 주세요.";
+            throw new Error(error?.message || fallback);
         }
         const result = await response.json();
         if (version === sessionVersion) {
@@ -44,7 +48,7 @@ export function createAuthClient(apiOrigin = "http://localhost:8080") {
                 return false;
             }
             if (!response.ok) {
-                throw new Error(`로그인 복구 실패 (${response.status})`);
+                throw new Error("로그인 상태를 확인할 수 없습니다. 다시 시도해 주세요.");
             }
             const result = await response.json();
             if (version !== sessionVersion) return false;
@@ -61,7 +65,7 @@ export function createAuthClient(apiOrigin = "http://localhost:8080") {
         const version = ++sessionVersion;
         const response = await authRequest("logout");
         if (!response.ok) {
-            throw new Error(`로그아웃 실패 (${response.status})`);
+            throw new Error("로그아웃할 수 없습니다. 다시 시도해 주세요.");
         }
         if (version === sessionVersion) {
             sessionVersion++;
