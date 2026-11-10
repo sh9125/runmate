@@ -4,7 +4,10 @@ import com.runmate.member.entity.Member;
 import com.runmate.runningevent.dto.request.RunningEventCreateRequestDto;
 import com.runmate.runningevent.dto.response.RunningEventListResponseDto;
 import com.runmate.runningevent.dto.response.RunningEventResponseDto;
+import com.runmate.runningevent.dto.response.MyRunningEventApplicationStatus;
+import com.runmate.runningevent.dto.response.MyRunningEventEndReason;
 import com.runmate.runningevent.entity.RunningEvent;
+import com.runmate.runningevent.entity.RunningEventStatus;
 
 public class RunningEventMapper {
 
@@ -27,7 +30,17 @@ public class RunningEventMapper {
                 .build();
     }
 
-    public static RunningEventResponseDto toResponse(RunningEvent runningEvent) {
+    // 생성·수정·개최 취소는 생성자 본인이 호출하므로 생성자의 현재 상태를 반환한다.
+    public static RunningEventResponseDto toCreatorResponse(RunningEvent event) {
+        boolean canceled = event.getStatus() == RunningEventStatus.CANCELED;
+        return toResponse(event, true,
+                canceled ? MyRunningEventApplicationStatus.ENDED : MyRunningEventApplicationStatus.PARTICIPATING,
+                canceled ? MyRunningEventEndReason.EVENT_CANCELED : null, null);
+    }
+
+    public static RunningEventResponseDto toResponse(RunningEvent runningEvent, boolean isCreator,
+                                                     MyRunningEventApplicationStatus applicationStatus,
+                                                     MyRunningEventEndReason endReason, Long waitlistPosition) {
         return new RunningEventResponseDto(
                 runningEvent.getId(),
                 runningEvent.getTitle(),
@@ -44,7 +57,8 @@ public class RunningEventMapper {
                 runningEvent.getCreator().getId(),
                 runningEvent.getCreator().getNickname(),
                 runningEvent.getCreatedAt(),
-                runningEvent.getUpdatedAt());
+                runningEvent.getUpdatedAt(),
+                isCreator, applicationStatus, endReason, waitlistPosition);
     }
 
     public static RunningEventListResponseDto toListResponse(RunningEvent runningEvent) {

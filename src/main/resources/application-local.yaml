@@ -1,3 +1,6 @@
+auth:
+  refresh-cookie-secure: ${AUTH_REFRESH_COOKIE_SECURE:false}
+
 spring:
   datasource:
     url:  jdbc:postgresql://localhost:5433/runmate

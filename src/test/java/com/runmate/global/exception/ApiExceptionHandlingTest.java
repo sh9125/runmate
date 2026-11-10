@@ -13,6 +13,8 @@ import com.runmate.runningevent.controller.RunningEventController;
 import com.runmate.runningevent.dto.response.RunningEventParticipantResponseDto;
 import com.runmate.runningevent.dto.response.RunningEventResponseDto;
 import com.runmate.runningevent.dto.response.RunningEventWaitlistResponseDto;
+import com.runmate.runningevent.dto.response.MyRunningEventApplicationStatus;
+import com.runmate.runningevent.dto.response.MyRunningEventEndReason;
 import com.runmate.runningevent.entity.RunningEventParticipantStatus;
 import com.runmate.runningevent.entity.RunningEventStatus;
 import com.runmate.runningevent.entity.RunningEventWaitlistStatus;
@@ -77,9 +79,54 @@ class ApiExceptionHandlingTest {
     private JpaMetamodelMappingContext jpaMappingContext;
 
     @Test
+    @DisplayName("상세 조회는 인증 이메일을 전달하고 내 상태를 기존 이벤트 정보와 함께 반환한다")
+    void detailReturnsViewerState() throws Exception {
+        when(runningEventService.getRunningEvent(1L, "runner@example.com"))
+                .thenReturn(new RunningEventResponseDto(1L, "한강 러닝", "설명", "서울", "한강", "정문",
+                        LocalDateTime.of(2030, 11, 1, 19, 0), 360, BigDecimal.valueOf(5), 2, 2,
+                        RunningEventStatus.RECRUITING, 2L, "생성자", null, null, false,
+                        MyRunningEventApplicationStatus.WAITING, null, 2L));
+
+        mockMvc.perform(get("/api/v1/running-events/1").param("email", "other@example.com"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.creatorId").value(2))
+                .andExpect(jsonPath("$.isCreator").value(false))
+                .andExpect(jsonPath("$.applicationStatus").value("WAITING"))
+                .andExpect(jsonPath("$.waitlistPosition").value(2))
+                .andExpect(jsonPath("$.endReason").doesNotExist());
+        verify(runningEventService).getRunningEvent(1L, "runner@example.com");
+    }
+
+    @Test
+    @DisplayName("상세 조회는 신청하지 않은 상태를 NONE으로 반환한다")
+    void detailReturnsNoneForNonApplicant() throws Exception {
+        when(runningEventService.getRunningEvent(1L, "runner@example.com"))
+                .thenReturn(new RunningEventResponseDto(1L, "한강 러닝", "설명", "서울", "한강", "정문",
+                        LocalDateTime.of(2030, 11, 1, 19, 0), 360, BigDecimal.valueOf(5), 2, 1,
+                        RunningEventStatus.RECRUITING, 2L, "생성자", null, null, false,
+                        MyRunningEventApplicationStatus.NONE, null, null));
+
+        mockMvc.perform(get("/api/v1/running-events/1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.applicationStatus").value("NONE"))
+                .andExpect(jsonPath("$.endReason").doesNotExist())
+                .andExpect(jsonPath("$.waitlistPosition").doesNotExist());
+    }
+
+    @Test
+    @WithAnonymousUser
+    void detailRequiresAuthentication() throws Exception {
+        mockMvc.perform(get("/api/v1/running-events/1"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+        verifyNoInteractions(runningEventService);
+    }
+
+    @Test
     @DisplayName("없는 이벤트 조회는 404와 식별 가능한 오류 코드를 반환한다")
     void eventNotFound() throws Exception {
-        when(runningEventService.getRunningEvent(999L))
+        when(runningEventService.getRunningEvent(999L, "runner@example.com"))
                 .thenThrow(new BusinessException(ErrorCode.RUNNING_EVENT_NOT_FOUND));
 
         mockMvc.perform(get("/api/v1/running-events/999"))
@@ -159,7 +206,7 @@ class ApiExceptionHandlingTest {
     @WithAnonymousUser
     @DisplayName("로그인 실패는 401을 반환한다")
     void invalidCredentials() throws Exception {
-        when(authService.login(any())).thenThrow(new BusinessException(ErrorCode.INVALID_CREDENTIALS));
+        when(authService.login(any(), eq(null))).thenThrow(new BusinessException(ErrorCode.INVALID_CREDENTIALS));
 
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -292,7 +339,7 @@ class ApiExceptionHandlingTest {
     @Test
     @DisplayName("접근 거부는 403이며 내부 메시지를 노출하지 않는다")
     void accessDenied() throws Exception {
-        when(runningEventService.getRunningEvent(1L)).thenThrow(new AccessDeniedException("internal policy"));
+        when(runningEventService.getRunningEvent(1L, "runner@example.com")).thenThrow(new AccessDeniedException("internal policy"));
         mockMvc.perform(get("/api/v1/running-events/1"))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"))
@@ -302,7 +349,7 @@ class ApiExceptionHandlingTest {
     @Test
     @DisplayName("알 수 없는 서버 오류는 500이며 내부 정보를 노출하지 않는다")
     void unexpectedException() throws Exception {
-        when(runningEventService.getRunningEvent(1L))
+        when(runningEventService.getRunningEvent(1L, "runner@example.com"))
                 .thenThrow(new IllegalStateException("sensitive SQL detail"));
         mockMvc.perform(get("/api/v1/running-events/1"))
                 .andExpect(status().isInternalServerError())
@@ -313,7 +360,7 @@ class ApiExceptionHandlingTest {
     @Test
     @DisplayName("일반 IllegalArgumentException을 업무 중복으로 단정하지 않는다")
     void arbitraryIllegalArgumentException() throws Exception {
-        when(runningEventService.getRunningEvent(1L)).thenThrow(new IllegalArgumentException("programming error"));
+        when(runningEventService.getRunningEvent(1L, "runner@example.com")).thenThrow(new IllegalArgumentException("programming error"));
         mockMvc.perform(get("/api/v1/running-events/1"))
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.code").value("INTERNAL_SERVER_ERROR"));
@@ -469,6 +516,11 @@ class ApiExceptionHandlingTest {
     private RunningEventResponseDto eventResponse(RunningEventStatus status) {
         return new RunningEventResponseDto(1L, "수정 제목", "설명", "서울", "한강공원", "정문",
                 LocalDateTime.of(2030, 11, 1, 19, 0), 360, BigDecimal.valueOf(5), 10, 1,
-                status, 2L, "생성자", null, null);
+                status, 2L, "생성자", null, null, true,
+                status == RunningEventStatus.CANCELED
+                        ? MyRunningEventApplicationStatus.ENDED
+                        : MyRunningEventApplicationStatus.PARTICIPATING,
+                status == RunningEventStatus.CANCELED
+                        ? MyRunningEventEndReason.EVENT_CANCELED : null, null);
     }
 }

@@ -5,3 +5,8 @@ spring:
 jwt:
   secret: runmate-jwt-secret-key-runmate-jwt-secret-key
   access-token-expiration-millis: 3600000
+
+auth:
+  frontend-origins: ${AUTH_FRONTEND_ORIGINS:http://localhost:5173}
+  refresh-token-ttl-seconds: ${AUTH_REFRESH_TOKEN_TTL_SECONDS:604800}
+  refresh-cookie-secure: ${AUTH_REFRESH_COOKIE_SECURE:true}

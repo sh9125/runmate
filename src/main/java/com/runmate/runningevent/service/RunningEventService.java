@@ -10,10 +10,14 @@ import com.runmate.runningevent.dto.response.RunningEventListResponseDto;
 import com.runmate.runningevent.dto.response.RunningEventResponseDto;
 import com.runmate.runningevent.entity.RunningEvent;
 import com.runmate.runningevent.entity.RunningEventParticipant;
+import com.runmate.runningevent.entity.RunningEventWaitlistEntry;
+import com.runmate.runningevent.entity.RunningEventWaitlistStatus;
+import com.runmate.runningevent.dto.response.MyRunningEventApplicationStatus;
 import com.runmate.runningevent.entity.RunningEventStatus;
 import com.runmate.runningevent.mapper.RunningEventMapper;
 import com.runmate.runningevent.repository.RunningEventParticipantRepository;
 import com.runmate.runningevent.repository.RunningEventRepository;
+import com.runmate.runningevent.repository.RunningEventWaitlistRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -32,6 +36,7 @@ public class RunningEventService {
     private final RunningEventParticipantRepository runningEventParticipantRepository;
     private final Clock clock;
     private final RunningEventWaitlistService waitlistService;
+    private final RunningEventWaitlistRepository waitlistRepository;
 
     @Transactional
     public RunningEventResponseDto createRunningEvent(RunningEventCreateRequestDto dto, String creatorEmail) {
@@ -44,7 +49,7 @@ public class RunningEventService {
                 .member(creator)
                 .build();
         runningEventParticipantRepository.save(runningEventParticipant);
-        return RunningEventMapper.toResponse(savedEvent);
+        return RunningEventMapper.toCreatorResponse(savedEvent);
     }
 
     @Transactional
@@ -58,9 +63,11 @@ public class RunningEventService {
     }
 
     @Transactional
-    public RunningEventResponseDto getRunningEvent(Long eventId) {
+    public RunningEventResponseDto getRunningEvent(Long eventId, String email) {
         RunningEvent runningEvent = runningEventRepository.findByIdForUpdate(eventId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RUNNING_EVENT_NOT_FOUND));
+        Member member = memberRepository.findByEmail(email)
+                .orElseThrow(() -> new BusinessException(ErrorCode.MEMBER_NOT_FOUND));
         LocalDateTime now = LocalDateTime.now(clock);
         RunningEventStatus previousStatus = runningEvent.getStatus();
         runningEvent.closeRecruitmentIfStarted(now);
@@ -68,7 +75,19 @@ public class RunningEventService {
             // 마감 변경의 Auditing updatedAt이 응답에도 반영되도록 먼저 flush한다.
             runningEventRepository.flush();
         }
-        return RunningEventMapper.toResponse(runningEvent);
+        RunningEventParticipant participant = runningEventParticipantRepository
+                .findByRunningEvent_IdAndMember_Id(eventId, member.getId()).orElse(null);
+        RunningEventWaitlistEntry entry = waitlistRepository
+                .findByRunningEvent_IdAndMember_Id(eventId, member.getId()).orElse(null);
+        RunningEventApplicationStateResolver.State state = RunningEventApplicationStateResolver
+                .resolve(runningEvent, participant, entry, now);
+        Long position = state.status() == MyRunningEventApplicationStatus.WAITING
+                ? waitlistRepository.countByRunningEvent_IdAndStatusAndQueueNumberLessThan(
+                        eventId, RunningEventWaitlistStatus.WAITING, entry.getQueueNumber()) + 1
+                : null;
+        return RunningEventMapper.toResponse(runningEvent,
+                runningEvent.getCreator().getEmail().equals(member.getEmail()),
+                state.status(), state.endReason(), position);
     }
 
     @Transactional
@@ -85,7 +104,7 @@ public class RunningEventService {
         }
         // Auditing의 updatedAt도 응답에 반영되도록 변경을 먼저 flush한다.
         runningEventRepository.flush();
-        return RunningEventMapper.toResponse(event);
+        return RunningEventMapper.toCreatorResponse(event);
     }
 
     @Transactional
@@ -93,7 +112,7 @@ public class RunningEventService {
         RunningEvent event = findOwnedEvent(eventId, memberEmail);
         event.cancel(LocalDateTime.now(clock));
         runningEventRepository.flush();
-        return RunningEventMapper.toResponse(event);
+        return RunningEventMapper.toCreatorResponse(event);
     }
 
     private RunningEvent findOwnedEvent(Long eventId, String memberEmail) {
