@@ -44,8 +44,9 @@ public class RunningEventController {
     }
 
     @GetMapping("/{eventId}")
-    public ResponseEntity<RunningEventResponseDto> getRunningEvent(@PathVariable Long eventId) {
-        RunningEventResponseDto runningEvent = runningEventService.getRunningEvent(eventId);
+    public ResponseEntity<RunningEventResponseDto> getRunningEvent(
+            @PathVariable Long eventId, Authentication authentication) {
+        RunningEventResponseDto runningEvent = runningEventService.getRunningEvent(eventId, authentication.getName());
         return ResponseEntity.ok(runningEvent);
     }
 

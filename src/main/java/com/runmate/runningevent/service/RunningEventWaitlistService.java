@@ -57,7 +57,7 @@ public class RunningEventWaitlistService {
     @Transactional
     public RunningEventWaitlistResponseDto cancelWaitlist(Long eventId, String email) {
         RunningEventWaitlistEntry entry = findActiveEntry(eventId, email);
-        entry.cancel();
+        entry.cancel(LocalDateTime.now(clock));
         return RunningEventWaitlistMapper.toResponse(entry, null);
     }
 

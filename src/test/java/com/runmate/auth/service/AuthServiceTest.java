@@ -3,6 +3,7 @@ package com.runmate.auth.service;
 import com.runmate.auth.dto.request.LoginRequestDto;
 import com.runmate.auth.dto.response.LoginResponseDto;
 import com.runmate.auth.jwt.JwtTokenProvider;
+import com.runmate.auth.repository.RefreshSessionRepository;
 import com.runmate.global.exception.BusinessException;
 import com.runmate.global.exception.ErrorCode;
 import com.runmate.member.entity.Member;
@@ -16,6 +17,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Optional;
+import java.time.Clock;
+import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -29,6 +32,10 @@ class AuthServiceTest {
     private PasswordEncoder passwordEncoder;
     @Mock
     private JwtTokenProvider jwtTokenProvider;
+    @Mock
+    private RefreshSessionRepository refreshSessions;
+    @Mock
+    private Clock clock;
     @InjectMocks
     private AuthService authService;
 
@@ -37,7 +44,7 @@ class AuthServiceTest {
         LoginRequestDto request = request();
         when(memberRepository.findByEmail(request.getEmail())).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> authService.login(request))
+        assertThatThrownBy(() -> authService.login(request, null))
                 .isInstanceOf(BusinessException.class)
                 .extracting(exception -> ((BusinessException) exception).getErrorCode())
                 .isEqualTo(ErrorCode.INVALID_CREDENTIALS);
@@ -51,7 +58,7 @@ class AuthServiceTest {
         when(memberRepository.findByEmail(request.getEmail())).thenReturn(Optional.of(member));
         when(passwordEncoder.matches(request.getPassword(), member.getPassword())).thenReturn(false);
 
-        assertThatThrownBy(() -> authService.login(request))
+        assertThatThrownBy(() -> authService.login(request, null))
                 .isInstanceOf(BusinessException.class)
                 .extracting(exception -> ((BusinessException) exception).getErrorCode())
                 .isEqualTo(ErrorCode.INVALID_CREDENTIALS);
@@ -66,9 +73,12 @@ class AuthServiceTest {
         when(passwordEncoder.matches(request.getPassword(), member.getPassword())).thenReturn(true);
         when(jwtTokenProvider.createAccessToken(request.getEmail())).thenReturn("access-token");
 
-        LoginResponseDto response = authService.login(request);
+        ReflectionTestUtils.setField(member, "id", 1L);
+        ReflectionTestUtils.setField(authService, "refreshTokenTtlSeconds", 604800L);
+        when(clock.instant()).thenReturn(Instant.parse("2030-01-01T00:00:00Z"));
+        AuthService.LoginResult response = authService.login(request, null);
 
-        assertThat(response).isEqualTo(new LoginResponseDto("access-token", "Bearer"));
+        assertThat(response.response()).isEqualTo(new LoginResponseDto("access-token", "Bearer"));
     }
 
     private LoginRequestDto request() {

@@ -49,6 +49,9 @@ public class RunningEventParticipant {
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
+    // 이전 데이터의 취소 시각은 복원할 수 없으므로 null을 허용한다.
+    private LocalDateTime canceledAt;
+
     @Builder
     private RunningEventParticipant(RunningEvent runningEvent, Member member) {
         this.runningEvent = runningEvent;
@@ -62,6 +65,7 @@ public class RunningEventParticipant {
         }
         runningEvent.cancelParticipation(member, now);
         this.status = RunningEventParticipantStatus.CANCELED;
+        this.canceledAt = now;
     }
 
     public void rejoin(LocalDateTime now) {
@@ -71,5 +75,6 @@ public class RunningEventParticipant {
         runningEvent.validateParticipationAllowed(now);
         runningEvent.increaseCurrentParticipantCount();
         this.status = RunningEventParticipantStatus.PARTICIPATING;
+        this.canceledAt = null;
     }
 }

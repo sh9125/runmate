@@ -163,7 +163,7 @@ class RecruitmentClosureRaceTest {
                 }
             }));
             await(locked);
-            var other = pool.submit(() -> eventService.getRunningEvent(second));
+            var other = pool.submit(() -> eventService.getRunningEvent(second, "creator@closure.test"));
             assertThat(other.get(5, TimeUnit.SECONDS).id()).isEqualTo(second);
             release.countDown();
             holder.get(20, TimeUnit.SECONDS);
@@ -248,7 +248,7 @@ class RecruitmentClosureRaceTest {
 
     private void lookup(String kind) {
         if (kind.equals("detail")) {
-            eventService.getRunningEvent(eventId);
+            eventService.getRunningEvent(eventId, "creator@closure.test");
         } else {
             var page = eventService.getRunningEvents(PageRequest.of(0, 10, Sort.by("id")));
             assertThat(page.getTotalElements()).isEqualTo(1);

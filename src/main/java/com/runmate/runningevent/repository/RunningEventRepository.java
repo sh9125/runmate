@@ -7,12 +7,14 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
@@ -20,6 +22,79 @@ import java.util.stream.Collectors;
 
 @Repository
 public interface RunningEventRepository extends JpaRepository<RunningEvent, Long> {
+    // 이벤트를 기준으로 조회하므로 참가·대기 기록이 함께 있어도 이벤트가 중복되지 않는다.
+    // 생성자는 목록 DTO에 필요하며, 단일 연관관계를 함께 조회해 추가 쿼리를 방지한다.
+    @EntityGraph(attributePaths = "creator")
+    Page<RunningEvent> findByCreator_Id(Long memberId, Pageable pageable);
+
+    // 과거 참가도 포함한다. 개최 취소는 참가 기록을 보존하므로 별도로 제외한다.
+    @EntityGraph(attributePaths = "creator")
+    @Query("""
+            select e from RunningEvent e
+            where e.status <> com.runmate.runningevent.entity.RunningEventStatus.CANCELED
+              and exists (
+                  select p.id from RunningEventParticipant p
+                  where p.runningEvent = e and p.member.id = :memberId
+                    and p.status = com.runmate.runningevent.entity.RunningEventParticipantStatus.PARTICIPATING
+              )
+            """)
+    Page<RunningEvent> findMyParticipatingEvents(@Param("memberId") Long memberId, Pageable pageable);
+
+    // waitlistOpenAfter는 서비스에서 한 번 구한 현재 시각 + 10분이다.
+    // startAt > 경계값이므로 정확히 시작 10분 전부터는 대기 목록에서 제외한다.
+    @EntityGraph(attributePaths = "creator")
+    @Query("""
+            select e from RunningEvent e
+            where e.status = com.runmate.runningevent.entity.RunningEventStatus.RECRUITING
+              and e.startAt > :waitlistOpenAfter
+              and exists (
+                  select w.id from RunningEventWaitlistEntry w
+                  where w.runningEvent = e and w.member.id = :memberId
+                    and w.status = com.runmate.runningevent.entity.RunningEventWaitlistStatus.WAITING
+              )
+              and not exists (
+                  select p.id from RunningEventParticipant p
+                  where p.runningEvent = e and p.member.id = :memberId
+                    and p.status = com.runmate.runningevent.entity.RunningEventParticipantStatus.PARTICIPATING
+              )
+            """)
+    Page<RunningEvent> findMyWaitingEvents(@Param("memberId") Long memberId,
+                                           @Param("waitlistOpenAfter") LocalDateTime waitlistOpenAfter,
+                                           Pageable pageable);
+
+    // 신청 기록이 있고 현재 참가·유효 대기 어디에도 속하지 않는 이벤트다.
+    // 개최 취소가 최우선이며, 분류를 DB에서 끝낸 뒤 페이징하여 전체 개수도 일치시킨다.
+    @EntityGraph(attributePaths = "creator")
+    @Query("""
+            select e from RunningEvent e
+            where (
+                exists (select p.id from RunningEventParticipant p
+                        where p.runningEvent = e and p.member.id = :memberId)
+                or exists (select w.id from RunningEventWaitlistEntry w
+                           where w.runningEvent = e and w.member.id = :memberId)
+            )
+            and (
+                e.status = com.runmate.runningevent.entity.RunningEventStatus.CANCELED
+                or (
+                    not exists (
+                        select p.id from RunningEventParticipant p
+                        where p.runningEvent = e and p.member.id = :memberId
+                          and p.status = com.runmate.runningevent.entity.RunningEventParticipantStatus.PARTICIPATING
+                    )
+                    and not exists (
+                        select w.id from RunningEventWaitlistEntry w
+                        where w.runningEvent = e and w.member.id = :memberId
+                          and w.status = com.runmate.runningevent.entity.RunningEventWaitlistStatus.WAITING
+                          and e.status = com.runmate.runningevent.entity.RunningEventStatus.RECRUITING
+                          and e.startAt > :waitlistOpenAfter
+                    )
+                )
+            )
+            """)
+    Page<RunningEvent> findMyEndedEvents(@Param("memberId") Long memberId,
+                                         @Param("waitlistOpenAfter") LocalDateTime waitlistOpenAfter,
+                                         Pageable pageable);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select e from RunningEvent e where e.id = :id")
     Optional<RunningEvent> findByIdForUpdate(@Param("id") Long id);

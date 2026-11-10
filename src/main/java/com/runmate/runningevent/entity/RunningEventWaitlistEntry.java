@@ -46,6 +46,9 @@ public class RunningEventWaitlistEntry {
     @Column(nullable = false)
     private LocalDateTime requestedAt;
 
+    // 이전 데이터의 취소 시각은 복원할 수 없으므로 null을 허용한다.
+    private LocalDateTime canceledAt;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private RunningEventWaitlistStatus status;
@@ -65,16 +68,18 @@ public class RunningEventWaitlistEntry {
         startWaiting(queueNumber, requestedAt);
     }
 
-    public void cancel() {
+    public void cancel(LocalDateTime now) {
         if (status != RunningEventWaitlistStatus.WAITING) {
             throw new BusinessException(ErrorCode.NOT_WAITING);
         }
         this.status = RunningEventWaitlistStatus.CANCELED;
+        this.canceledAt = now;
     }
 
     private void startWaiting(long queueNumber, LocalDateTime requestedAt) {
         this.queueNumber = queueNumber;
         this.requestedAt = requestedAt;
         this.status = RunningEventWaitlistStatus.WAITING;
+        this.canceledAt = null;
     }
 }

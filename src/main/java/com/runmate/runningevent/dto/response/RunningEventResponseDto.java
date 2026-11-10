@@ -21,6 +21,10 @@ public record RunningEventResponseDto(
         Long creatorId,
         String creatorNickname,
         LocalDateTime createdAt,
-        LocalDateTime updatedAt
+        LocalDateTime updatedAt,
+        boolean isCreator,
+        MyRunningEventApplicationStatus applicationStatus,
+        MyRunningEventEndReason endReason,
+        Long waitlistPosition
 ) {
 }

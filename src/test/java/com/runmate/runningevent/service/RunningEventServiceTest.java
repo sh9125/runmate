@@ -14,6 +14,7 @@ import com.runmate.runningevent.entity.RunningEventStatus;
 import com.runmate.runningevent.mapper.RunningEventMapper;
 import com.runmate.runningevent.repository.RunningEventParticipantRepository;
 import com.runmate.runningevent.repository.RunningEventRepository;
+import com.runmate.runningevent.repository.RunningEventWaitlistRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -56,13 +57,18 @@ public class RunningEventServiceTest {
     @Mock
     private RunningEventWaitlistService waitlistService;
 
+    @Mock
+    private RunningEventWaitlistRepository waitlistRepository;
+
     private RunningEventService runningEventService;
 
     @BeforeEach
     void setUp() {
         Clock clock = Clock.fixed(NOW.atZone(ZONE).toInstant(), ZONE);
         runningEventService = new RunningEventService(runningEventRepository, memberRepository,
-                runningEventParticipantRepository, clock, waitlistService);
+                runningEventParticipantRepository, clock, waitlistService, waitlistRepository);
+        lenient().when(memberRepository.findByEmail("runner@example.com"))
+                .thenReturn(Optional.of(createMember()));
     }
 
     @Test
@@ -159,7 +165,7 @@ public class RunningEventServiceTest {
                 .thenReturn((Optional.of(runningEvent)));
 
         // 실행
-        RunningEventResponseDto response = runningEventService.getRunningEvent(eventId);
+        RunningEventResponseDto response = runningEventService.getRunningEvent(eventId, "runner@example.com");
 
         // 결과 검증
         assertThat(response.title()).isEqualTo("한강 야간 러닝");
@@ -178,7 +184,7 @@ public class RunningEventServiceTest {
         // 실행
 
         // 결과 검증
-        assertThatThrownBy(() -> runningEventService.getRunningEvent(eventId))
+        assertThatThrownBy(() -> runningEventService.getRunningEvent(eventId, "runner@example.com"))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("존재하지 않는 러닝 이벤트입니다.")
                 .extracting(exception -> ((BusinessException) exception).getErrorCode())
@@ -194,7 +200,7 @@ public class RunningEventServiceTest {
         RunningEvent event = eventAt(1L, NOW.plusSeconds(startOffsetSeconds));
         when(runningEventRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(event));
 
-        RunningEventResponseDto response = runningEventService.getRunningEvent(1L);
+        RunningEventResponseDto response = runningEventService.getRunningEvent(1L, "runner@example.com");
 
         RunningEventStatus expected = startOffsetSeconds <= 0
                 ? RunningEventStatus.CLOSED : RunningEventStatus.RECRUITING;
@@ -202,7 +208,6 @@ public class RunningEventServiceTest {
         assertThat(response.status()).isEqualTo(expected);
         assertThat(event.getCurrentParticipantCount()).isEqualTo(1);
         assertThat(response.currentParticipantCount()).isEqualTo(1);
-        verifyNoInteractions(memberRepository, runningEventParticipantRepository);
         verify(runningEventRepository).findByIdForUpdate(1L);
         if (startOffsetSeconds <= 0) {
             verify(runningEventRepository).flush();
@@ -223,7 +228,7 @@ public class RunningEventServiceTest {
             return null;
         }).when(runningEventRepository).flush();
 
-        RunningEventResponseDto response = runningEventService.getRunningEvent(1L);
+        RunningEventResponseDto response = runningEventService.getRunningEvent(1L, "runner@example.com");
 
         assertThat(response.status()).isEqualTo(RunningEventStatus.CLOSED);
         assertThat(response.updatedAt()).isEqualTo(NOW);
@@ -260,7 +265,7 @@ public class RunningEventServiceTest {
         when(runningEventRepository.findPageForUpdate(pageable))
                 .thenReturn(new PageImpl<>(List.of(event), pageable, 1));
 
-        assertThat(runningEventService.getRunningEvent(1L).status()).isEqualTo(status);
+        assertThat(runningEventService.getRunningEvent(1L, "runner@example.com").status()).isEqualTo(status);
         assertThat(runningEventService.getRunningEvents(pageable).getContent())
                 .extracting(RunningEventListResponseDto::status).containsExactly(status);
         assertThat(event.getStatus()).isEqualTo(status);
@@ -321,10 +326,10 @@ public class RunningEventServiceTest {
         when(runningEventRepository.findPageForUpdate(pageable))
                 .thenReturn(new PageImpl<>(List.of(event), pageable, 1));
 
-        assertThat(runningEventService.getRunningEvent(1L).status()).isEqualTo(RunningEventStatus.CLOSED);
+        assertThat(runningEventService.getRunningEvent(1L, "runner@example.com").status()).isEqualTo(RunningEventStatus.CLOSED);
         assertThat(runningEventService.getRunningEvents(pageable).getContent())
                 .extracting(RunningEventListResponseDto::status).containsExactly(RunningEventStatus.CLOSED);
-        assertThat(runningEventService.getRunningEvent(1L).status()).isEqualTo(RunningEventStatus.CLOSED);
+        assertThat(runningEventService.getRunningEvent(1L, "runner@example.com").status()).isEqualTo(RunningEventStatus.CLOSED);
         assertThat(event.getCurrentParticipantCount()).isEqualTo(1);
     }
 
