@@ -140,7 +140,7 @@ public class RunningEventServiceTest {
         RunningEventCreateRequestDto request = createRequest();
         RunningEvent runningEvent = RunningEventMapper.toEntity(request, creator);
 
-        when(runningEventRepository.findPageForUpdate(pageRequest))
+        when(runningEventRepository.findAll(pageRequest))
                 .thenReturn(new PageImpl<>(List.of(runningEvent), pageRequest, 1));
 
         // 실행
@@ -150,7 +150,7 @@ public class RunningEventServiceTest {
         assertThat(response.getContent()).hasSize(1);
         assertThat(response.getContent().get(0).title()).isEqualTo("한강 야간 러닝");
         assertThat(response.getContent().get(0).creatorNickname()).isEqualTo("밤빛폭격기");
-        verify(runningEventRepository).findPageForUpdate(pageRequest);
+        verify(runningEventRepository).findAll(pageRequest);
     }
 
     @Test
@@ -161,7 +161,7 @@ public class RunningEventServiceTest {
         Member creator = createMember();
         RunningEventCreateRequestDto request = createRequest();
         RunningEvent runningEvent = RunningEventMapper.toEntity(request, creator);
-        when(runningEventRepository.findByIdForUpdate(eventId))
+        when(runningEventRepository.findById(eventId))
                 .thenReturn((Optional.of(runningEvent)));
 
         // 실행
@@ -171,7 +171,7 @@ public class RunningEventServiceTest {
         assertThat(response.title()).isEqualTo("한강 야간 러닝");
         assertThat(response.description()).isEqualTo("함께 가볍게 달려요.");
         assertThat(response.creatorNickname()).isEqualTo("밤빛폭격기");
-        verify(runningEventRepository).findByIdForUpdate(eventId);
+        verify(runningEventRepository).findById(eventId);
     }
 
     @Test
@@ -179,7 +179,7 @@ public class RunningEventServiceTest {
     void getRunningEventFail() {
         // 테스트 조건 준비
         Long eventId = 999L;
-        when(runningEventRepository.findByIdForUpdate(eventId))
+        when(runningEventRepository.findById(eventId))
                 .thenReturn((Optional.empty()));
         // 실행
 
@@ -190,65 +190,56 @@ public class RunningEventServiceTest {
                 .extracting(exception -> ((BusinessException) exception).getErrorCode())
                 .isEqualTo(ErrorCode.RUNNING_EVENT_NOT_FOUND);
 
-        verify(runningEventRepository).findByIdForUpdate(eventId);
+        verify(runningEventRepository).findById(eventId);
     }
 
     @ParameterizedTest
     @ValueSource(ints = {-1, 0, 1})
-    @DisplayName("상세 조회는 시작 직전에는 모집을 유지하고 정확한 시작 시각부터 엔티티와 응답을 마감한다")
-    void detailRefreshesStatusAtStartBoundary(int startOffsetSeconds) {
+    @DisplayName("상세 응답은 정확한 시작 시각부터 모집 마감으로 표시한다")
+    void detailReportsStatusAtStartBoundary(int startOffsetSeconds) {
         RunningEvent event = eventAt(1L, NOW.plusSeconds(startOffsetSeconds));
-        when(runningEventRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(event));
+        when(runningEventRepository.findById(1L)).thenReturn(Optional.of(event));
 
         RunningEventResponseDto response = runningEventService.getRunningEvent(1L, "runner@example.com");
 
         RunningEventStatus expected = startOffsetSeconds <= 0
                 ? RunningEventStatus.CLOSED : RunningEventStatus.RECRUITING;
-        assertThat(event.getStatus()).isEqualTo(expected);
+        assertThat(event.getStatus()).isEqualTo(RunningEventStatus.RECRUITING);
         assertThat(response.status()).isEqualTo(expected);
         assertThat(event.getCurrentParticipantCount()).isEqualTo(1);
         assertThat(response.currentParticipantCount()).isEqualTo(1);
-        verify(runningEventRepository).findByIdForUpdate(1L);
-        if (startOffsetSeconds <= 0) {
-            verify(runningEventRepository).flush();
-        }
+        verify(runningEventRepository).findById(1L);
         verifyNoMoreInteractions(runningEventRepository);
     }
 
     @Test
-    @DisplayName("상세 조회에서 마감 상태를 변경하면 flush 이후 갱신된 수정 시각으로 응답한다")
-    void detailReturnsUpdatedAtAfterRecruitmentClosureFlush() {
+    @DisplayName("마감 저장 전 상세 조회는 DB의 마지막 수정 시각을 반환한다")
+    void detailPreservesStoredUpdatedAtBeforeScheduledClosure() {
         RunningEvent event = eventAt(1L, NOW);
         ReflectionTestUtils.setField(event, "updatedAt", NOW.minusDays(1));
-        when(runningEventRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(event));
-        // Auditing 자체 대신 flush 시점의 값 변경을 모사해 DTO 생성 순서를 검증한다.
-        doAnswer(invocation -> {
-            assertThat(event.getStatus()).isEqualTo(RunningEventStatus.CLOSED);
-            ReflectionTestUtils.setField(event, "updatedAt", NOW);
-            return null;
-        }).when(runningEventRepository).flush();
+        when(runningEventRepository.findById(1L)).thenReturn(Optional.of(event));
 
         RunningEventResponseDto response = runningEventService.getRunningEvent(1L, "runner@example.com");
 
         assertThat(response.status()).isEqualTo(RunningEventStatus.CLOSED);
-        assertThat(response.updatedAt()).isEqualTo(NOW);
-        verify(runningEventRepository).flush();
+        assertThat(response.updatedAt()).isEqualTo(NOW.minusDays(1));
+        verify(runningEventRepository, never()).flush();
     }
 
     @ParameterizedTest
     @ValueSource(ints = {-1, 0, 1})
-    @DisplayName("목록 조회도 시작 시각 경계를 엔티티와 응답에 동일하게 적용한다")
-    void listRefreshesStatusAtStartBoundary(int startOffsetSeconds) {
+    @DisplayName("목록 응답도 시작 시각을 기준으로 모집 상태를 표시한다")
+    void listReportsStatusAtStartBoundary(int startOffsetSeconds) {
         RunningEvent event = eventAt(1L, NOW.plusSeconds(startOffsetSeconds));
         PageRequest pageable = PageRequest.of(0, 10);
-        when(runningEventRepository.findPageForUpdate(pageable))
+        when(runningEventRepository.findAll(pageable))
                 .thenReturn(new PageImpl<>(List.of(event), pageable, 1));
 
         Page<RunningEventListResponseDto> response = runningEventService.getRunningEvents(pageable);
 
         RunningEventStatus expected = startOffsetSeconds <= 0
                 ? RunningEventStatus.CLOSED : RunningEventStatus.RECRUITING;
-        assertThat(event.getStatus()).isEqualTo(expected);
+        assertThat(event.getStatus()).isEqualTo(RunningEventStatus.RECRUITING);
         assertThat(response.getContent()).extracting(RunningEventListResponseDto::status)
                 .containsExactly(expected);
         assertThat(event.getCurrentParticipantCount()).isEqualTo(1);
@@ -261,8 +252,8 @@ public class RunningEventServiceTest {
         RunningEvent event = eventAt(1L, NOW.minusDays(1));
         ReflectionTestUtils.setField(event, "status", status);
         PageRequest pageable = PageRequest.of(0, 10);
-        when(runningEventRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(event));
-        when(runningEventRepository.findPageForUpdate(pageable))
+        when(runningEventRepository.findById(1L)).thenReturn(Optional.of(event));
+        when(runningEventRepository.findAll(pageable))
                 .thenReturn(new PageImpl<>(List.of(event), pageable, 1));
 
         assertThat(runningEventService.getRunningEvent(1L, "runner@example.com").status()).isEqualTo(status);
@@ -274,14 +265,14 @@ public class RunningEventServiceTest {
     }
 
     @Test
-    @DisplayName("목록은 조회한 페이지에서 시작한 이벤트만 마감하고 페이징 정보와 순서를 유지한다")
-    void listRefreshesOnlyReturnedPageAndPreservesPagination() {
+    @DisplayName("목록은 모집 상태를 표시하며 페이징 정보와 순서를 유지한다")
+    void listReportsStatusAndPreservesPagination() {
         RunningEvent elapsed = eventAt(11L, NOW.minusMinutes(1));
         RunningEvent future = eventAt(12L, NOW.plusMinutes(1));
         RunningEvent canceled = eventAt(13L, NOW.minusMinutes(1));
         ReflectionTestUtils.setField(canceled, "status", RunningEventStatus.CANCELED);
         PageRequest pageable = PageRequest.of(1, 3);
-        when(runningEventRepository.findPageForUpdate(pageable))
+        when(runningEventRepository.findAll(pageable))
                 .thenReturn(new PageImpl<>(List.of(elapsed, future, canceled), pageable, 8));
 
         Page<RunningEventListResponseDto> response = runningEventService.getRunningEvents(pageable);
@@ -291,13 +282,13 @@ public class RunningEventServiceTest {
         assertThat(response.getContent()).extracting(RunningEventListResponseDto::status)
                 .containsExactly(RunningEventStatus.CLOSED, RunningEventStatus.RECRUITING,
                         RunningEventStatus.CANCELED);
-        assertThat(elapsed.getStatus()).isEqualTo(RunningEventStatus.CLOSED);
+        assertThat(elapsed.getStatus()).isEqualTo(RunningEventStatus.RECRUITING);
         assertThat(future.getStatus()).isEqualTo(RunningEventStatus.RECRUITING);
         assertThat(canceled.getStatus()).isEqualTo(RunningEventStatus.CANCELED);
         assertThat(response.getTotalElements()).isEqualTo(8);
         assertThat(response.getTotalPages()).isEqualTo(3);
         assertThat(response.getNumber()).isEqualTo(1);
-        verify(runningEventRepository).findPageForUpdate(pageable);
+        verify(runningEventRepository).findAll(pageable);
         // 전체 목록을 따로 조회하지 않고 지정한 페이지의 조회만 사용한다.
         verifyNoMoreInteractions(runningEventRepository);
         verifyNoInteractions(memberRepository, runningEventParticipantRepository);
@@ -307,13 +298,13 @@ public class RunningEventServiceTest {
     @DisplayName("빈 페이지는 추가 마감 대상을 조회하지 않고 그대로 반환한다")
     void emptyPageReturnsWithoutAdditionalQueries() {
         PageRequest pageable = PageRequest.of(0, 10);
-        when(runningEventRepository.findPageForUpdate(pageable)).thenReturn(Page.empty(pageable));
+        when(runningEventRepository.findAll(pageable)).thenReturn(Page.empty(pageable));
 
         Page<RunningEventListResponseDto> response = runningEventService.getRunningEvents(pageable);
 
         assertThat(response.getContent()).isEmpty();
         assertThat(response.getTotalElements()).isZero();
-        verify(runningEventRepository).findPageForUpdate(pageable);
+        verify(runningEventRepository).findAll(pageable);
         verifyNoMoreInteractions(runningEventRepository);
     }
 
@@ -322,8 +313,8 @@ public class RunningEventServiceTest {
     void repeatedReadsKeepClosedStateAndParticipantCount() {
         RunningEvent event = eventAt(1L, NOW);
         PageRequest pageable = PageRequest.of(0, 10);
-        when(runningEventRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(event));
-        when(runningEventRepository.findPageForUpdate(pageable))
+        when(runningEventRepository.findById(1L)).thenReturn(Optional.of(event));
+        when(runningEventRepository.findAll(pageable))
                 .thenReturn(new PageImpl<>(List.of(event), pageable, 1));
 
         assertThat(runningEventService.getRunningEvent(1L, "runner@example.com").status()).isEqualTo(RunningEventStatus.CLOSED);

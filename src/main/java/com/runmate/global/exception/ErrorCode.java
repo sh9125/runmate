@@ -24,6 +24,7 @@ public enum ErrorCode {
     PARTICIPATION_NOT_CANCELABLE(HttpStatus.CONFLICT, "개인 참가를 취소할 수 없는 이벤트 상태입니다."),
     PARTICIPATION_CANCELLATION_DEADLINE_PASSED(HttpStatus.CONFLICT, "이벤트 시작 10분 전부터 개인 참가를 취소할 수 없습니다."),
     NOT_PARTICIPATING(HttpStatus.CONFLICT, "현재 참가 중인 이벤트가 아닙니다."),
+    EVENT_WRITE_BUSY(HttpStatus.SERVICE_UNAVAILABLE, "모임 신청·취소 요청이 몰리고 있습니다. 잠시 후 다시 시도해 주세요."),
     DUPLICATE_EMAIL(HttpStatus.CONFLICT, "이미 사용 중인 이메일 입니다."),
     DUPLICATE_NICKNAME(HttpStatus.CONFLICT, "이미 사용 중인 닉네임 입니다."),
     PASSWORD_TOO_LONG(HttpStatus.BAD_REQUEST, "비밀번호가 너무 깁니다. 길이를 줄여 주세요."),

@@ -77,8 +77,15 @@ public class RunningEventParticipantService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_PARTICIPATING));
 
         LocalDateTime now = LocalDateTime.now(clock);
+        participant.validateCancellation(now);
+        // 참가 기록을 먼저 읽어 취소와 승급 사이에 중간 인원이 flush되지 않도록 한다.
+        var promotion = waitlistService.prepareNextPromotion(event, now);
         participant.cancel(now);
-        waitlistService.promote(event, now, 1);
+        promotion.ifPresent(next -> {
+            waitlistService.applyPromotion(event, now, next);
+            // 인원 수가 같아도 참가 명단이 바뀌었으므로 수정 시각을 갱신한다.
+            event.markParticipantRosterChanged(now);
+        });
         return RunningEventParticipantMapper.toResponse(participant);
     }
 }

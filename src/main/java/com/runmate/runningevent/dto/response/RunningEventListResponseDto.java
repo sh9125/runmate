@@ -18,4 +18,12 @@ public record RunningEventListResponseDto(
         RunningEventStatus status,
         String creatorNickname
 ) {
+    public RunningEventListResponseDto withRecruitmentStatusAt(LocalDateTime now) {
+        if (status != RunningEventStatus.RECRUITING || now.isBefore(startAt)) {
+            return this;
+        }
+        return new RunningEventListResponseDto(id, title, region, runningPlace, startAt,
+                preferredPaceSeconds, targetDistanceKm, capacity, currentParticipantCount,
+                RunningEventStatus.CLOSED, creatorNickname);
+    }
 }

@@ -15,7 +15,6 @@ import com.runmate.runningevent.entity.RunningEventParticipantStatus;
 import com.runmate.runningevent.entity.RunningEventWaitlistEntry;
 import com.runmate.runningevent.entity.RunningEventWaitlistStatus;
 import com.runmate.runningevent.dto.response.MyRunningEventApplicationStatus;
-import com.runmate.runningevent.entity.RunningEventStatus;
 import com.runmate.runningevent.mapper.RunningEventMapper;
 import com.runmate.runningevent.repository.RunningEventParticipantRepository;
 import com.runmate.runningevent.repository.RunningEventRepository;
@@ -24,6 +23,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
@@ -55,37 +55,30 @@ public class RunningEventService {
         return RunningEventMapper.toCreatorResponse(savedEvent, List.of(creator.getNickname()));
     }
 
-    @Transactional
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public Page<RunningEventListResponseDto> getRunningEvents(Pageable pageable) {
-        return closeStartedEvents(runningEventRepository.findPageForUpdate(pageable));
-    }
-
-    @Transactional
-    public Page<RunningEventListResponseDto> getRunningEvents(Pageable pageable, RunningEventListFilter filter) {
-        return closeStartedEvents(runningEventRepository.findPageForUpdate(pageable, filter, LocalDateTime.now(clock)));
-    }
-
-    private Page<RunningEventListResponseDto> closeStartedEvents(Page<RunningEvent> events) {
         LocalDateTime now = LocalDateTime.now(clock);
-        for (RunningEvent event : events) {
-            event.closeRecruitmentIfStarted(now);
-        }
-        return events.map(RunningEventMapper::toListResponse);
+        return toListResponse(runningEventRepository.findAll(pageable), now);
     }
 
-    @Transactional
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public Page<RunningEventListResponseDto> getRunningEvents(Pageable pageable, RunningEventListFilter filter) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        String statusName = filter.status() == null ? "" : filter.status().name();
+        return toListResponse(runningEventRepository.findAllFiltered(filter, now, statusName, pageable), now);
+    }
+
+    private Page<RunningEventListResponseDto> toListResponse(Page<RunningEvent> events, LocalDateTime now) {
+        return events.map(event -> RunningEventMapper.toListResponse(event, event.recruitmentStatusAt(now)));
+    }
+
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public RunningEventResponseDto getRunningEvent(Long eventId, String email) {
-        RunningEvent runningEvent = runningEventRepository.findByIdForUpdate(eventId)
+        LocalDateTime now = LocalDateTime.now(clock);
+        RunningEvent runningEvent = runningEventRepository.findById(eventId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RUNNING_EVENT_NOT_FOUND));
         Member member = memberRepository.findByEmail(email)
                 .orElseThrow(() -> new BusinessException(ErrorCode.MEMBER_NOT_FOUND));
-        LocalDateTime now = LocalDateTime.now(clock);
-        RunningEventStatus previousStatus = runningEvent.getStatus();
-        runningEvent.closeRecruitmentIfStarted(now);
-        if (previousStatus != runningEvent.getStatus()) {
-            // 마감 변경의 Auditing updatedAt이 응답에도 반영되도록 먼저 flush한다.
-            runningEventRepository.flush();
-        }
         RunningEventParticipant participant = runningEventParticipantRepository
                 .findByRunningEvent_IdAndMember_Id(eventId, member.getId()).orElse(null);
         RunningEventWaitlistEntry entry = waitlistRepository
@@ -96,7 +89,7 @@ public class RunningEventService {
                 ? waitlistRepository.countByRunningEvent_IdAndStatusAndQueueNumberLessThan(
                         eventId, RunningEventWaitlistStatus.WAITING, entry.getQueueNumber()) + 1
                 : null;
-        return RunningEventMapper.toResponse(runningEvent,
+        return RunningEventMapper.toResponse(runningEvent, runningEvent.recruitmentStatusAt(now),
                 runningEvent.getCreator().getEmail().equals(member.getEmail()),
                 state.status(), state.endReason(), position, findParticipantNicknames(eventId));
     }

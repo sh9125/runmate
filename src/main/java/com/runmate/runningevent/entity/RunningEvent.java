@@ -121,6 +121,11 @@ public class RunningEvent {
     }
 
     public void cancelParticipation(Member participant, LocalDateTime now) {
+        validateParticipationCancellation(participant, now);
+        this.currentParticipantCount--;
+    }
+
+    void validateParticipationCancellation(Member participant, LocalDateTime now) {
         if (creator.getEmail().equals(participant.getEmail())) {
             throw new BusinessException(ErrorCode.CREATOR_CANNOT_CANCEL_PARTICIPATION);
         }
@@ -134,13 +139,19 @@ public class RunningEvent {
         if (currentParticipantCount <= 1) {
             throw new IllegalStateException("참가 취소 후 생성자의 참가 인원을 유지할 수 없습니다.");
         }
-        this.currentParticipantCount--;
+    }
+
+    public void markParticipantRosterChanged(LocalDateTime now) {
+        this.updatedAt = now;
+    }
+
+    public RunningEventStatus recruitmentStatusAt(LocalDateTime now) {
+        return status == RunningEventStatus.RECRUITING && !now.isBefore(startAt)
+                ? RunningEventStatus.CLOSED : status;
     }
 
     public void closeRecruitmentIfStarted(LocalDateTime now) {
-        if (status == RunningEventStatus.RECRUITING && !now.isBefore(startAt)) {
-            this.status = RunningEventStatus.CLOSED;
-        }
+        this.status = recruitmentStatusAt(now);
     }
 
     public void update(String title, String description, String region, String runningPlace,
