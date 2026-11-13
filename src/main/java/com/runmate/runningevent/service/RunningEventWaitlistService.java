@@ -42,7 +42,8 @@ public class RunningEventWaitlistService {
             throw new BusinessException(ErrorCode.ALREADY_WAITING);
         }
 
-        long queueNumber = waitlistRepository.findLastQueueNumber(event.getId()) + 1;
+        var queueTail = waitlistRepository.findQueueTail(event.getId(), WAITING);
+        long queueNumber = queueTail.getLastQueueNumber() + 1;
         RunningEventWaitlistEntry entry;
         if (existing.isPresent()) {
             entry = existing.get();
@@ -51,7 +52,8 @@ public class RunningEventWaitlistService {
             entry = waitlistRepository.save(RunningEventWaitlistEntry.builder()
                     .runningEvent(event).member(member).queueNumber(queueNumber).requestedAt(now).build());
         }
-        return toRankedResponse(entry);
+        // 모임 행 락 안에서 대기열 맨 뒤에 추가하므로 기존 WAITING 행이 모두 앞에 있다.
+        return RunningEventWaitlistMapper.toResponse(entry, queueTail.getWaitingCount() + 1);
     }
 
     @Transactional
@@ -78,6 +80,17 @@ public class RunningEventWaitlistService {
     }
 
     // 호출하는 서비스의 이벤트 행 락과 트랜잭션을 그대로 사용한다.
+    Optional<PreparedPromotion> prepareNextPromotion(RunningEvent event, LocalDateTime now) {
+        if (!event.isWaitlistOpen(now)) {
+            return Optional.empty();
+        }
+        return waitlistRepository.findPromotionCandidates(
+                        event.getId(), WAITING, PageRequest.of(0, 1))
+                .stream().findFirst()
+                .map(candidate -> new PreparedPromotion(candidate.getEntry(),
+                        Optional.ofNullable(candidate.getParticipant())));
+    }
+
     void promote(RunningEvent event, LocalDateTime now, int seats) {
         if (seats <= 0 || !event.isWaitlistOpen(now)) {
             return;
@@ -85,17 +98,28 @@ public class RunningEventWaitlistService {
         List<RunningEventWaitlistEntry> entries = waitlistRepository.findByRunningEvent_IdAndStatusOrderByQueueNumberAsc(
                 event.getId(), WAITING, PageRequest.of(0, seats));
         for (RunningEventWaitlistEntry entry : entries) {
-            Optional<RunningEventParticipant> participant = participantRepository.findByRunningEvent_IdAndMember_Id(
-                    event.getId(), entry.getMember().getId());
-            if (participant.isPresent()) {
-                participant.get().rejoin(now);
-            } else {
-                event.increaseCurrentParticipantCount();
-                participantRepository.save(RunningEventParticipant.builder()
-                        .runningEvent(event).member(entry.getMember()).build());
-            }
-            waitlistRepository.delete(entry);
+            applyPromotion(event, now, preparePromotion(entry));
         }
+    }
+
+    private PreparedPromotion preparePromotion(RunningEventWaitlistEntry entry) {
+        return new PreparedPromotion(entry, participantRepository.findByRunningEvent_IdAndMember_Id(
+                entry.getRunningEvent().getId(), entry.getMember().getId()));
+    }
+
+    void applyPromotion(RunningEvent event, LocalDateTime now, PreparedPromotion promotion) {
+        RunningEventWaitlistEntry entry = promotion.entry();
+        if (promotion.participant().isPresent()) {
+            promotion.participant().get().rejoin(now);
+        } else {
+            event.increaseCurrentParticipantCount();
+            participantRepository.save(RunningEventParticipant.builder()
+                    .runningEvent(event).member(entry.getMember()).build());
+        }
+        waitlistRepository.delete(entry);
+    }
+
+    record PreparedPromotion(RunningEventWaitlistEntry entry, Optional<RunningEventParticipant> participant) {
     }
 
     private RunningEventWaitlistResponseDto toRankedResponse(RunningEventWaitlistEntry entry) {

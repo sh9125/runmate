@@ -1,0 +1,20 @@
+server:
+  address: 127.0.0.1
+  port: 8081
+
+runmate:
+  load:
+    gate-writes: true
+    gate-write-permits: 2
+
+spring:
+  datasource:
+    url: jdbc:postgresql://127.0.0.1:5435/runmate_load
+    username: runmate_load
+    password: runmate_load
+    hikari:
+      maximum-pool-size: 10
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false

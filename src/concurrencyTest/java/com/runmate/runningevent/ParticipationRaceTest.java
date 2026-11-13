@@ -195,6 +195,24 @@ class ParticipationRaceTest {
     }
 
     @Test
+    void canceledTailKeepsItsQueueNumberButDoesNotCountAhead() {
+        String thirdEmail = member("third").getEmail();
+        service.participateRunningEvent(eventId, firstEmail);
+        assertThat(service.participateRunningEvent(eventId, secondEmail))
+                .isInstanceOfSatisfying(RunningEventWaitlistResponseDto.class,
+                        response -> assertThat(response.position()).isEqualTo(1L));
+        waitlistService.cancelWaitlist(eventId, secondEmail);
+
+        assertThat(service.participateRunningEvent(eventId, thirdEmail))
+                .isInstanceOfSatisfying(RunningEventWaitlistResponseDto.class,
+                        response -> assertThat(response.position()).isEqualTo(1L));
+        assertThat(jdbc.queryForObject("""
+                select queue_number from running_event_waitlist_entries
+                where running_event_id=? and member_id=(select id from members where email=?)
+                """, Long.class, eventId, thirdEmail)).isEqualTo(2L);
+    }
+
+    @Test
     void newApplicantCannotTakeSeatFromExistingWaiter() throws Exception {
         String thirdEmail = member("third").getEmail();
         service.participateRunningEvent(eventId, firstEmail);
@@ -241,6 +259,50 @@ class ParticipationRaceTest {
                 """, String.class, eventId)).containsExactlyInAnyOrder("creator@race.test", thirdEmail, fourthEmail);
         assertThat(waitlistCount()).isZero();
         assertSnapshot(3, 3);
+    }
+
+    @Test
+    void promotionReactivatesExistingParticipationAndUpdatesRosterTimestamp() {
+        Long previousRecord = service.participateRunningEvent(eventId, secondEmail).id();
+        service.cancelParticipation(eventId, secondEmail);
+        service.participateRunningEvent(eventId, firstEmail);
+        service.participateRunningEvent(eventId, secondEmail);
+        LocalDateTime previousUpdatedAt = LocalDateTime.of(2000, 1, 1, 0, 0);
+        jdbc.update("update running_events set updated_at = ? where id = ?", previousUpdatedAt, eventId);
+
+        service.cancelParticipation(eventId, firstEmail);
+
+        assertSnapshot(2, 2);
+        assertThat(waitlistCount()).isZero();
+        assertThat(jdbc.queryForObject("""
+                select id from running_event_participants
+                where running_event_id = ? and member_id = (select id from members where email = ?)
+                  and status = 'PARTICIPATING' and canceled_at is null
+                """, Long.class, eventId, secondEmail)).isEqualTo(previousRecord);
+        assertThat(jdbc.queryForObject("select updated_at from running_events where id = ?",
+                LocalDateTime.class, eventId)).isAfter(previousUpdatedAt);
+    }
+
+    @Test
+    void failedPromotionDoesNotCommitCancellation() {
+        service.participateRunningEvent(eventId, firstEmail);
+        // 이미 참가 중인 주최자를 선두에 넣어 승급이 실패하는 상태를 만든다.
+        jdbc.update("""
+                insert into running_event_waitlist_entries
+                    (running_event_id, member_id, queue_number, requested_at, status)
+                select ?, id, 1, localtimestamp, 'WAITING' from members where email = 'creator@race.test'
+                """, eventId);
+
+        assertThatThrownBy(() -> service.cancelParticipation(eventId, firstEmail))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        ex -> assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.ALREADY_PARTICIPATING));
+
+        assertSnapshot(2, 2);
+        assertThat(waitlistCount()).isEqualTo(1);
+        assertThat(jdbc.queryForObject("""
+                select status from running_event_participants
+                where running_event_id = ? and member_id = (select id from members where email = ?)
+                """, String.class, eventId, firstEmail)).isEqualTo("PARTICIPATING");
     }
 
     @Test

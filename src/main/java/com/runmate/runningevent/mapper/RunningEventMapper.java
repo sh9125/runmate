@@ -35,12 +35,13 @@ public class RunningEventMapper {
     // 생성·수정·개최 취소는 생성자 본인이 호출하므로 생성자의 현재 상태를 반환한다.
     public static RunningEventResponseDto toCreatorResponse(RunningEvent event, List<String> participantNicknames) {
         boolean canceled = event.getStatus() == RunningEventStatus.CANCELED;
-        return toResponse(event, true,
+        return toResponse(event, event.getStatus(), true,
                 canceled ? MyRunningEventApplicationStatus.ENDED : MyRunningEventApplicationStatus.PARTICIPATING,
                 canceled ? MyRunningEventEndReason.EVENT_CANCELED : null, null, participantNicknames);
     }
 
-    public static RunningEventResponseDto toResponse(RunningEvent runningEvent, boolean isCreator,
+    public static RunningEventResponseDto toResponse(RunningEvent runningEvent, RunningEventStatus status,
+                                                     boolean isCreator,
                                                      MyRunningEventApplicationStatus applicationStatus,
                                                      MyRunningEventEndReason endReason, Long waitlistPosition,
                                                      List<String> participantNicknames) {
@@ -56,7 +57,7 @@ public class RunningEventMapper {
                 runningEvent.getTargetDistanceKm(),
                 runningEvent.getCapacity(),
                 runningEvent.getCurrentParticipantCount(),
-                runningEvent.getStatus(),
+                status,
                 runningEvent.getCreator().getId(),
                 runningEvent.getCreator().getNickname(),
                 runningEvent.getCreatedAt(),
@@ -65,6 +66,10 @@ public class RunningEventMapper {
     }
 
     public static RunningEventListResponseDto toListResponse(RunningEvent runningEvent) {
+        return toListResponse(runningEvent, runningEvent.getStatus());
+    }
+
+    public static RunningEventListResponseDto toListResponse(RunningEvent runningEvent, RunningEventStatus status) {
         return new RunningEventListResponseDto(
                 runningEvent.getId(),
                 runningEvent.getTitle(),
@@ -75,7 +80,7 @@ public class RunningEventMapper {
                 runningEvent.getTargetDistanceKm(),
                 runningEvent.getCapacity(),
                 runningEvent.getCurrentParticipantCount(),
-                runningEvent.getStatus(),
+                status,
                 runningEvent.getCreator().getNickname()
         );
     }

@@ -60,12 +60,21 @@ public class RunningEventParticipant {
     }
 
     public void cancel(LocalDateTime now) {
-        if (status != RunningEventParticipantStatus.PARTICIPATING) {
-            throw new BusinessException(ErrorCode.NOT_PARTICIPATING);
-        }
+        validateActiveParticipation();
         runningEvent.cancelParticipation(member, now);
         this.status = RunningEventParticipantStatus.CANCELED;
         this.canceledAt = now;
+    }
+
+    public void validateCancellation(LocalDateTime now) {
+        validateActiveParticipation();
+        runningEvent.validateParticipationCancellation(member, now);
+    }
+
+    private void validateActiveParticipation() {
+        if (status != RunningEventParticipantStatus.PARTICIPATING) {
+            throw new BusinessException(ErrorCode.NOT_PARTICIPATING);
+        }
     }
 
     public void rejoin(LocalDateTime now) {

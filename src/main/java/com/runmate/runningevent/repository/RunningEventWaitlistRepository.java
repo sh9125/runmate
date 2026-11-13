@@ -2,6 +2,7 @@ package com.runmate.runningevent.repository;
 
 import com.runmate.runningevent.entity.RunningEventWaitlistEntry;
 import com.runmate.runningevent.entity.RunningEventWaitlistStatus;
+import com.runmate.runningevent.entity.RunningEventParticipant;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -34,11 +35,38 @@ public interface RunningEventWaitlistRepository extends JpaRepository<RunningEve
 
     Optional<RunningEventWaitlistEntry> findByRunningEvent_IdAndMember_Id(Long eventId, Long memberId);
 
-    @Query("select coalesce(max(entry.queueNumber), 0) from RunningEventWaitlistEntry entry where entry.runningEvent.id = :eventId")
-    long findLastQueueNumber(@Param("eventId") Long eventId);
+    @Query("""
+            select coalesce(max(entry.queueNumber), 0L) as lastQueueNumber,
+                   coalesce(sum(case when entry.status = :waiting then 1L else 0L end), 0L) as waitingCount
+            from RunningEventWaitlistEntry entry
+            where entry.runningEvent.id = :eventId
+            """)
+    QueueTail findQueueTail(@Param("eventId") Long eventId, @Param("waiting") RunningEventWaitlistStatus waiting);
+
+    interface QueueTail {
+        long getLastQueueNumber();
+        long getWaitingCount();
+    }
 
     long countByRunningEvent_IdAndStatusAndQueueNumberLessThan(
             Long eventId, RunningEventWaitlistStatus status, long queueNumber);
+
+    @Query("""
+            select entry as entry, participant as participant
+            from RunningEventWaitlistEntry entry
+            left join RunningEventParticipant participant
+              on participant.runningEvent = entry.runningEvent and participant.member = entry.member
+            where entry.runningEvent.id = :eventId and entry.status = :status
+            order by entry.queueNumber
+            """)
+    List<PromotionCandidate> findPromotionCandidates(@Param("eventId") Long eventId,
+                                                     @Param("status") RunningEventWaitlistStatus status,
+                                                     Pageable pageable);
+
+    interface PromotionCandidate {
+        RunningEventWaitlistEntry getEntry();
+        RunningEventParticipant getParticipant();
+    }
 
     List<RunningEventWaitlistEntry> findByRunningEvent_IdAndStatusOrderByQueueNumberAsc(
             Long eventId, RunningEventWaitlistStatus status, Pageable pageable);

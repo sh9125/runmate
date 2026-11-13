@@ -14,3 +14,6 @@ spring:
 logging:
   level:
     org.hibernate.SQL: warn
+runmate:
+  recruitment:
+    scheduling-enabled: false
